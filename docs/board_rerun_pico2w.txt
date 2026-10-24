@@ -1,0 +1,21 @@
+G ADDX.b pass=8065 fail=0 cycles=0 errata=0
+G ADDX.l pass=8065 fail=0 cycles=0 errata=0
+G ADDX.w pass=8065 fail=0 cycles=0 errata=0
+G Bcc pass=8065 fail=0 cycles=0 errata=0
+G BSR pass=8065 fail=0 cycles=0 errata=0
+G CHK pass=8065 fail=0 cycles=0 errata=0
+G DBcc pass=8065 fail=0 cycles=0 errata=0
+G DIVS pass=4919 fail=0 cycles=0 errata=3146
+G DIVU pass=6210 fail=1 cycles=0 errata=1854
+G EXT.l pass=8065 fail=0 cycles=0 errata=0
+G EXT.w pass=8065 fail=0 cycles=0 errata=0
+G MULS pass=8065 fail=0 cycles=0 errata=0
+G MULU pass=8065 fail=0 cycles=0 errata=0
+G NEGX.b pass=8065 fail=0 cycles=0 errata=0
+G NEGX.l pass=8065 fail=0 cycles=0 errata=0
+G NEGX.w pass=8065 fail=0 cycles=0 errata=0
+G SUBX.b pass=8065 fail=0 cycles=0 errata=0
+G SUBX.l pass=8065 fail=0 cycles=0 errata=0
+G SUBX.w pass=8065 fail=0 cycles=0 errata=0
+vectors groups=19 pass=148234 fail=1 cycles=0 errata=5000 FAIL
+vectors exit 1
