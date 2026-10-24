@@ -1,0 +1,39 @@
+; Compile probe: the 68000 core alone on the Pico W.
+#CLOCK_KHZ = 200000
+#M68K_ASM_TAIL = 1
+XIncludeFile "RP2040/Lib/clocks.pico"
+XIncludeFile "RP2040/Lib/timer.pico"
+XIncludeFile "RP2040/Lib/uart.pico"
+XIncludeFile "RP2040/Lib/usb_serial.pico"
+XIncludeFile "RP2040/Lib/safety.pico"
+XIncludeFile "../src/m68k.pico"
+XIncludeFile "../src/io.pmi"
+
+Procedure.i M68kHookRd8(a.i)
+  ProcedureReturn 0
+EndProcedure
+Procedure.i M68kHookRd16(a.i)
+  ProcedureReturn 0
+EndProcedure
+Procedure M68kHookWr8(a.i, v.i)
+EndProcedure
+Procedure M68kHookWr16(a.i, v.i)
+EndProcedure
+Procedure M68kResetHook()
+EndProcedure
+
+Procedure Main()
+  SafetyBoot()
+  ClockInitKhz(#CLOCK_KHZ)
+  TimerInit()
+  UsbSerialInit()
+  WaitHost()
+  M68kMapHook(0, $1000000)
+  M68kSetPC(0)
+  Num(M68kRun(100))
+  Eol()
+  Repeat
+    UsbSerialTask()
+    SafetyPet()
+  ForEver
+EndProcedure
