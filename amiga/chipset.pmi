@@ -138,6 +138,10 @@ Global LongFrame.i, LaceLong.i
 ; the CPU cycle at which the current line began; VPos is the line number.
 Global FrameCyc.i, LineCyc0.i, VPos.i, LinesThisFrame.i, FrameCount.i
 Global SliceStart.i, ChipHost.i, ChipMask.i
+; Chip RAM may live in two places (the Picos: the low part in SRAM, the rest in
+; PSRAM): ChipBase(a >> 16) + a is the host address of chip address a, per
+; 64 KB. ChipSetHost fills it; with one block, every entry is ChipHost.
+Global Dim ChipBase.i(8)
 Global AmigaETotal.i, AmigaEFrac.i
 
 Declare AmigaSetIpl()
@@ -148,7 +152,7 @@ Declare DispCatchUp(hpos.i)
 ; 4 display end of line, 5 audio, 6 disk + keyboard, 7 CIAs + frame end; and inside
 ; those, 8 blitter (BlitStart) and 9 display catch-up (DispCatchUp).
 CompilerIf #AM_PROFILE = 1
-  Global Dim AmProf.i(11)        ; 10: M68kRun calls
+  Global Dim AmProf.i(16)        ; 10: M68kRun calls; 11/12 time in the CPU's chip-register reads/writes, 13/14 their counts
   Macro AmProfMark(k)
     pt = AmClock()
     AmProf(k) = AmProf(k) + pt - p0
@@ -196,10 +200,25 @@ Procedure MemClear(addr.i, bytes.i)
 EndProcedure
 
 ; A word of chip RAM (DMA side): addr is masked to the chip RAM.
+; Chip RAM as two blocks: low bytes from lowHost, the rest from highHost.
+Procedure ChipSetHost(lowHost.i, lowBytes.i, highHost.i)
+  Protected k.i
+  For k = 0 To 7
+    If k * $10000 < lowBytes
+      ChipBase(k) = lowHost
+    Else
+      ChipBase(k) = highHost - lowBytes
+    EndIf
+  Next
+  ChipHost = lowHost
+EndProcedure
+
 Procedure.i ChipRd(addr.i)
-  ProcedureReturn PeekU(ChipHost + (addr & ChipMask & ~1))
+  addr = addr & ChipMask & ~1
+  ProcedureReturn PeekU(ChipBase(addr >> 16) + addr)
 EndProcedure
 
 Procedure ChipWr(addr.i, v.i)
-  PokeU(ChipHost + (addr & ChipMask & ~1), v)
+  addr = addr & ChipMask & ~1
+  PokeU(ChipBase(addr >> 16) + addr, v)
 EndProcedure

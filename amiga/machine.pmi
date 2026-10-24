@@ -5,7 +5,8 @@
 ;   chipset.pmi cia.pmi copper.pmi denise.pmi blitter.pmi paula.pmi input.pmi machine.pmi
 ;
 ; The platform provides, before AmigaReset():
-;   ChipHost / ChipMask   the chip RAM (guest words in host byte order), its size - 1
+;   ChipHost / ChipMask   the chip RAM (guest words in host byte order), its size - 1;
+;                         or ChipSetHost(low, lowBytes, high) for chip RAM in two places
 ;   AmigaSlowHost, AmigaSlowBytes   slow RAM at $C00000 (0 = none)
 ;   AmigaRomHost, AmigaRomBytes     the Kickstart (256 or 512 KB, words in host order)
 ;   AmigaExtHost, AmigaExtBytes     an extended ROM at $E00000 (512 KB; 0 = none) -
@@ -111,6 +112,14 @@ Procedure CiaSerialOut(c.i, b.i)
 EndProcedure
 
 ; ---------------------------------------------------------------- memory map
+; Chip RAM seen by the CPU at guest address at (a mirror), 64 KB at a time.
+Procedure AmigaMapChip(at.i)
+  Protected k.i
+  For k = 0 To ChipMask >> 16
+    M68kMapRam(at + k * $10000, $10000, ChipBase(k) + k * $10000)
+  Next
+EndProcedure
+
 Procedure AmigaMapOverlay(on.i)
   AmigaOvl = on
   If on
@@ -121,9 +130,9 @@ Procedure AmigaMapOverlay(on.i)
       M68kMapRom($40000, $40000, AmigaRomHost)
     EndIf
   Else
-    M68kMapRam(0, ChipMask + 1, ChipHost)
+    AmigaMapChip(0)
     If ChipMask + 1 < $80000
-      M68kMapRam(ChipMask + 1, ChipMask + 1, ChipHost)
+      AmigaMapChip(ChipMask + 1)
     EndIf
   EndIf
 EndProcedure
@@ -133,7 +142,7 @@ Procedure AmigaMapMemory()
   M68kMapHook(0, $1000000)
   a = 0
   While a < $200000
-    M68kMapRam(a, ChipMask + 1, ChipHost)
+    AmigaMapChip(a)
     a = a + ChipMask + 1
   Wend
   If AmigaSlowBytes
@@ -387,7 +396,7 @@ EndProcedure
 
 ; ---------------------------------------------------------------- the CPU's hooks
 ; $A00000-$BFFFFF CIAs, $C00000-$DFFFFF custom chips (where not RAM), else open bus.
-Procedure.i M68kHookRd16(a.i)
+Procedure.i M68kHookRd16Now(a.i)
   Protected v.i
   a = a & $FFFFFF
   If a >= $C00000 And a < $E00000
@@ -406,7 +415,21 @@ Procedure.i M68kHookRd16(a.i)
   ProcedureReturn $FFFF
 EndProcedure
 
-Procedure.i M68kHookRd8(a.i)
+Procedure.i M68kHookRd16(a.i)
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i, r.i
+    q0 = AmClock()
+    r = M68kHookRd16Now(a)
+    AmProf(11) = AmProf(11) + AmClock() - q0
+    AmProf(13) = AmProf(13) + 1
+    ProcedureReturn r
+  CompilerElse
+    ProcedureReturn M68kHookRd16Now(a)
+  CompilerEndIf
+EndProcedure
+
+
+Procedure.i M68kHookRd8Now(a.i)
   a = a & $FFFFFF
   If a >= $A00000 And a < $C00000
     If a & 1
@@ -426,7 +449,21 @@ Procedure.i M68kHookRd8(a.i)
   ProcedureReturn (M68kHookRd16(a) >> 8) & $FF
 EndProcedure
 
-Procedure M68kHookWr16(a.i, v.i)
+Procedure.i M68kHookRd8(a.i)
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i, r.i
+    q0 = AmClock()
+    r = M68kHookRd8Now(a)
+    AmProf(11) = AmProf(11) + AmClock() - q0
+    AmProf(13) = AmProf(13) + 1
+    ProcedureReturn r
+  CompilerElse
+    ProcedureReturn M68kHookRd8Now(a)
+  CompilerEndIf
+EndProcedure
+
+
+Procedure M68kHookWr16Now(a.i, v.i)
   a = a & $FFFFFF
   If a >= $C00000 And a < $E00000
     CustomWrite(a & $1FE, v)
@@ -442,7 +479,20 @@ Procedure M68kHookWr16(a.i, v.i)
   EndIf
 EndProcedure
 
-Procedure M68kHookWr8(a.i, v.i)
+Procedure M68kHookWr16(a.i, v.i)
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i
+    q0 = AmClock()
+    M68kHookWr16Now(a, v)
+    AmProf(12) = AmProf(12) + AmClock() - q0
+    AmProf(14) = AmProf(14) + 1
+  CompilerElse
+    M68kHookWr16Now(a, v)
+  CompilerEndIf
+EndProcedure
+
+
+Procedure M68kHookWr8Now(a.i, v.i)
   a = a & $FFFFFF
   If a >= $A00000 And a < $C00000
     If a & 1
@@ -461,6 +511,19 @@ Procedure M68kHookWr8(a.i, v.i)
     CustomWrite(a & $1FE, ((v & $FF) << 8) | (v & $FF))
   EndIf
 EndProcedure
+
+Procedure M68kHookWr8(a.i, v.i)
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i
+    q0 = AmClock()
+    M68kHookWr8Now(a, v)
+    AmProf(12) = AmProf(12) + AmClock() - q0
+    AmProf(14) = AmProf(14) + 1
+  CompilerElse
+    M68kHookWr8Now(a, v)
+  CompilerEndIf
+EndProcedure
+
 
 ; The RESET instruction: the chips and the CIAs go back to their reset state.
 Procedure M68kResetHook()

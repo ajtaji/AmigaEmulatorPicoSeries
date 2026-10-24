@@ -12,7 +12,11 @@ EndMacro
 #AUD_RATE = 44100
 #AUD_MONO = 0
 #AM_PROFILE = 0
-XIncludeFile "m68k_core.pbi"
+CompilerIf Defined(M68K_HIST, #PB_Constant)
+  XIncludeFile "m68k_core_hist.pbi"   ; tools/gen_m68k.py --hist: counts opcodes
+CompilerElse
+  XIncludeFile "m68k_core.pbi"
+CompilerEndIf
 XIncludeFile "../amiga/chipset.pmi"
 XIncludeFile "../amiga/cia.pmi"
 XIncludeFile "../amiga/copper.pmi"
@@ -90,8 +94,8 @@ Procedure HostInit(slowKb.i)
     *HostExt = AllocateMemory($80000)
     *HostSlow = AllocateMemory($80000)
   EndIf
-  ChipHost = *HostChip
   ChipMask = $7FFFF
+  ChipSetHost(*HostChip, $80000, *HostChip + $80000)
   AmigaSlowHost = *HostSlow
   AmigaSlowBytes = slowKb * 1024
   AmigaRomHost = *HostRom

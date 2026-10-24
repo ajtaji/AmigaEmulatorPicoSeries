@@ -112,6 +112,15 @@ If n > 0
   Next
   PrintN("audio: last " + Str(n) + " samples, left rms " + Str(Sqr(ll / n)) + " " + Str(zl * #AUD_RATE / (2 * n)) + " Hz, right rms " + Str(Sqr(rr / n)) + " " + Str(zr * #AUD_RATE / (2 * n)) + " Hz")
 EndIf
+CompilerIf Defined(M68K_HIST, #PB_Constant)
+  ; the opcode counts, for tools/hist_report.py
+  f = CreateFile(#PB_Any, "m68k_hist.bin")
+  For w = 0 To 65535
+    WriteQuad(f, M68kHist(w))
+  Next
+  CloseFile(f)
+  PrintN("opcode counts: m68k_hist.bin")
+CompilerEndIf
 If chipFile <> ""
   ; chip RAM, big-endian as the 68000 sees it
   f = CreateFile(#PB_Any, chipFile)

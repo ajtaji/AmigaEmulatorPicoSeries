@@ -24,3 +24,5 @@ private/
 __pycache__/
 # our own boot ROM (bootrom/bootrom.s), embedded by the desktop build
 !bootrom/bootrom.rom
+desktop/m68k_core_hist.pbi
+m68k_hist.bin

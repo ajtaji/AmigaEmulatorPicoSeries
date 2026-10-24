@@ -53,6 +53,10 @@ CompilerEndIf
 
 Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i, ProfFrom.i = -1, SumEvery.i
 Global Dim SerBuf.a(256)
+; the low #CHIP_SRAM_KB of chip RAM lives in SRAM (from the board's wrapper): the
+; emulated DMA streams through the PSRAM's 16 KB cache and evicts the CPU's work
+; there, so what a program keeps low runs at SRAM speed
+Global Dim ChipSram.l(#CHIP_SRAM_KB * 256)
 Global SerLen.i
 
 Procedure HexDigit(v.i)
@@ -120,7 +124,7 @@ Procedure DumpChip()
   For a = 0 To $7FFC0 Step 64
     UsbSerialWrite(67)
     For b = 0 To 63
-      v = PeekA(ChipHost + ((a + b) ! 1))
+      v = PeekA(ChipBase((a + b) >> 16) + ((a + b) ! 1))
       HexDigit(v >> 4)
       HexDigit(v)
     Next
@@ -149,6 +153,18 @@ Procedure ProfReport()
   Next
   Say(" | M68kRun calls/frame ")
   Num(AmProf(10) / 50)
+  Say(" | fast hit/frame ")
+  Num(M68kFastHit / 50)
+  Say(" miss ")
+  Num(M68kFastMiss / 50)
+  Say(" | chip reg reads us ")
+  Num(AmProf(11) / (50 * (#CLOCK_KHZ / 1000)))
+  Say(" n ")
+  Num(AmProf(13) / 50)
+  Say(" writes us ")
+  Num(AmProf(12) / (50 * (#CLOCK_KHZ / 1000)))
+  Say(" n ")
+  Num(AmProf(14) / 50)
   Say(" total ")
   Num(tot)
   Eol()
@@ -224,8 +240,8 @@ Procedure Main()
       SafetyPet()
     ForEver
   EndIf
-  ChipHost = #PSRAM_BASE + #PS_CHIP
   ChipMask = $7FFFF
+  ChipSetHost(@ChipSram(0), #CHIP_SRAM_KB * 1024, #PSRAM_BASE + #PS_CHIP + #CHIP_SRAM_KB * 1024)
   AmigaSlowHost = #PSRAM_BASE + #PS_SLOW
   AmigaSlowBytes = $80000
   For k = 0 To $FFFFC Step 4
@@ -298,9 +314,11 @@ Procedure Main()
       Eol()
     EndIf
     If ProfFrom = -2
-      For k = 0 To 10
+      For k = 0 To 15
         AmProf(k) = 0
       Next
+      M68kFastHit = 0
+      M68kFastMiss = 0
       ProfFrom = FrameCount
     ElseIf ProfFrom >= 0 And FrameCount - ProfFrom >= 50
       ProfReport()

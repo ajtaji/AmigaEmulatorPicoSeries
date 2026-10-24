@@ -8,6 +8,7 @@
 EnableRunFromRAM
 #CLOCK_KHZ = 150000
 #M68K_ASM_TAIL = 1
+#CHIP_SRAM_KB = 64             ; the low chip RAM in SRAM (the rest in PSRAM)
 #AMIGA_AUDIO = 1
 XIncludeFile "RP2350/Lib/multicore_smp.pico2"
 XIncludeFile "RP2350/Lib/cyw43_nvram.pico2"

@@ -95,7 +95,7 @@ Procedure BlitArea(w.i, h.i)
     fcar = Bool(BltCon1 & 4)
     For x = 0 To w - 1
       If usea
-        BltAdat = PeekU(ChipHost + (BltApt & ~1))
+        BltAdat = PeekU(ChipBase(BltApt >> 16) + (BltApt & ~1))
         BltApt = (BltApt + stp) & ChipMask
       EndIf
       an = BltAdat
@@ -112,7 +112,7 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       ao = an
       If useb
-        BltBdat = PeekU(ChipHost + (BltBpt & ~1))
+        BltBdat = PeekU(ChipBase(BltBpt >> 16) + (BltBpt & ~1))
         BltBpt = (BltBpt + stp) & ChipMask
       EndIf
       bn = BltBdat
@@ -123,7 +123,7 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       bo = bn
       If usec
-        BltCdat = PeekU(ChipHost + (BltCpt & ~1))
+        BltCdat = PeekU(ChipBase(BltCpt >> 16) + (BltCpt & ~1))
         BltCpt = (BltCpt + stp) & ChipMask
       EndIf
       c = BltCdat
@@ -148,7 +148,7 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       BltDdat = d
       If used
-        PokeU(ChipHost + (BltDpt & ~1), d)
+        PokeU(ChipBase(BltDpt >> 16) + (BltDpt & ~1), d)
         BltDpt = (BltDpt + stp) & ChipMask
       EndIf
     Next
