@@ -248,7 +248,7 @@ The pair from AROS's 2026-10-23 boot ISO goes where its residents say:
   "AROS Live CD" volume. This A500 has no CD drive, and the floppy is meant to
   go with the ISO (`docs/aros_desktop_floppy.png`).
 
-The images live in `C:\PMFBuildoms-private`, never in git.
+The images live in `C:\PMFBuild\roms-private\amiga\aros`, never in git.
 
 Kickstart and commercial disks are copyrighted: none are in this repository
 (`.gitignore` refuses `*.rom`, `*.adf`; the one exception is our own
