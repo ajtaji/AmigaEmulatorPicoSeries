@@ -26,7 +26,16 @@ FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
 #PS_CHIP = $000000
 #PS_SLOW = $080000
 #PS_DF0 = $100000
-#AUD_RING = 2048
+; Paula's ring: mono at 48 kHz, the rate the Bluetooth link plays (85 ms); read in
+; place by BtAudioSource on the Pico Plus 2 W, unused on a board with no radio.
+#AUD_RING = 4096
+#AUD_RATE = 48000
+#AUD_MONO = 1
+; where the time goes: the M33's cycle counter (DWT CYCCNT, enabled in Main), 'p' prints it
+#AM_PROFILE = 1
+Macro AmClock()
+  PeekL($E0001004)
+EndMacro
 
 XIncludeFile "m68k.pico2"
 XIncludeFile "../amiga/chipset.pmi"
@@ -38,8 +47,11 @@ XIncludeFile "../amiga/paula.pmi"
 XIncludeFile "../amiga/input.pmi"
 XIncludeFile "../amiga/machine.pmi"
 XIncludeFile "io.pmi"
+CompilerIf #AMIGA_AUDIO = 1
+  XIncludeFile "audio_bt.pmi"
+CompilerEndIf
 
-Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i
+Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i, ProfFrom.i = -1, SumEvery.i
 Global Dim SerBuf.a(256)
 Global SerLen.i
 
@@ -120,6 +132,28 @@ Procedure DumpChip()
   Eol()
 EndProcedure
 
+; microseconds per frame in each part of the line (AmigaRunLine), over 50 frames
+Procedure ProfReport()
+  Protected k.i, tot.i
+  Say("PROF us/frame: disp0 cpu copper blitend disp1 audio disk+kbd cia+frame | blit catchup =")
+  tot = 0
+  For k = 0 To 7
+    Say(" ")
+    Num(AmProf(k) / (50 * (#CLOCK_KHZ / 1000)))
+    tot = tot + AmProf(k) / (50 * (#CLOCK_KHZ / 1000))
+  Next
+  Say(" |")
+  For k = 8 To 9
+    Say(" ")
+    Num(AmProf(k) / (50 * (#CLOCK_KHZ / 1000)))
+  Next
+  Say(" | M68kRun calls/frame ")
+  Num(AmProf(10) / 50)
+  Say(" total ")
+  Num(tot)
+  Eol()
+EndProcedure
+
 Procedure.i RxWait()
   Protected c.i
   c = UsbSerialRead()
@@ -148,6 +182,12 @@ Procedure Commands()
     ElseIf c = 100
       ; d + four hex digits: dump chip RAM when that frame has run (to diff against amiga_cli --dump-chip)
       DumpAt = (HexIn(RxWait()) << 12) | (HexIn(RxWait()) << 8) | (HexIn(RxWait()) << 4) | HexIn(RxWait())
+    ElseIf c = 99
+      ; c: the picture checksum one frame in ten on (costs the drawing of that frame) / off
+      SumEvery = 1 - SumEvery
+    ElseIf c = 112
+      ; p: time per part of the line over the next 50 frames
+      ProfFrom = -2
     ElseIf c = 109
       dx = (HexIn(RxWait()) << 4) | HexIn(RxWait())
       dy = (HexIn(RxWait()) << 4) | HexIn(RxWait())
@@ -158,9 +198,12 @@ Procedure Commands()
 EndProcedure
 
 Procedure Main()
-  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i
+  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i
   SafetyBoot()
   ClockInitKhz(#CLOCK_KHZ)
+  PokeL($E000EDFC, PeekL($E000EDFC) | $01000000)    ; DEMCR.TRCENA
+  PokeL($E0001004, 0)
+  PokeL($E0001000, PeekL($E0001000) | 1)            ; DWT CYCCNT on
   TimerInit()
   UsbSerialInit()
   WaitHost()
@@ -220,10 +263,23 @@ Procedure Main()
   Say(" ssp=")
   Hex(M68kGetSSP(), 8)
   Eol()
+  CompilerIf #AMIGA_AUDIO = 1
+    If AudioBegin(?Speaker)
+      If LaunchCore1()
+        PokeL(@Core1Go, 1)
+        Say("Bluetooth: playing; the machine is paced to 50 frames a second")
+      Else
+        Say("Bluetooth: core 1 did not start; running silent")
+        AudioRunning = 0
+      EndIf
+      Eol()
+    EndIf
+  CompilerEndIf
   Say("READY")
   Eol()
   t0 = Micros()
   cyc0 = AmigaCpuCycles
+  pace = t0
   Repeat
     If ShotWant And VPos = 0
       ShotWant = 0
@@ -232,8 +288,8 @@ Procedure Main()
       Eol()
     EndIf
     FrameSum = 0
-    ; the picture is drawn only for a picture asked for and one frame in ten (the checksum)
-    DispDrawOn = Bool(ShotNow Or (FrameCount % 10) = 0)
+    ; the picture is drawn only for a picture asked for, and with c one frame in ten (the checksum)
+    DispDrawOn = Bool(ShotNow Or (SumEvery > 0 And (FrameCount % 10) = 0))
     AmigaRunFrame()
     LastFrameSum = FrameSum
     If ShotNow
@@ -241,11 +297,33 @@ Procedure Main()
       Say("END")
       Eol()
     EndIf
+    If ProfFrom = -2
+      For k = 0 To 10
+        AmProf(k) = 0
+      Next
+      ProfFrom = FrameCount
+    ElseIf ProfFrom >= 0 And FrameCount - ProfFrom >= 50
+      ProfReport()
+      ProfFrom = -1
+    EndIf
     If DumpAt > 0 And FrameCount = DumpAt
       DumpChip()
       DumpAt = 0
     EndIf
     frames = frames + 1
+    CompilerIf #AMIGA_AUDIO = 1
+      ; with a speaker the sound sets the pace: PAL's 50 frames a second, no faster
+      If AudioRunning
+        pace = pace + 20000
+        While Micros() - pace < 0
+          UsbSerialTask()
+          SafetyPet()
+        Wend
+        If Micros() - pace > 100000
+          pace = Micros()     ; behind (a heavy frame): do not race to catch up
+        EndIf
+      EndIf
+    CompilerEndIf
     UsbSerialTask()
     SafetyPet()
     Commands()
@@ -266,6 +344,16 @@ Procedure Main()
       Num(DrvTrack(0))
       Say(" motor=")
       Num(DrvMotor(0))
+      CompilerIf #AMIGA_AUDIO = 1
+        If AudioRunning
+          Say(" bt live=")
+          Num(BtAudioLive())
+          Say(" packets=")
+          Num(BtAudioPackets())
+          Say(" underruns=")
+          Num(BtAudioUnderruns())
+        EndIf
+      CompilerEndIf
       Eol()
       frames = 0
       cyc0 = AmigaCpuCycles

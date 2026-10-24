@@ -1,0 +1,135 @@
+; Paula on a Bluetooth speaker (Pico Plus 2 W): PureMetal's Shared/Bluetooth/bt_audio.pmi
+; (A2DP + SBC) reads Paula's mono 48 kHz ring in place (BtAudioSource). Core 0
+; connects (AudioBegin, before the machine starts); core 1 then does nothing but
+; stream (Core1Main -> AudioPoll). The scheme of the NES and Ms. Pac-Man emulators.
+;
+; The speaker's address comes from the build's wrapper (?Speaker, 6 bytes as a
+; phone shows it). The published wrapper has zeros there: the machine runs silent
+; and says so. Builds with #AMIGA_AUDIO = 0 (the Feather: no radio) leave all of
+; this out.
+;
+; The link key the speaker agrees on is kept in its own flash sector ("BTK1" + the
+; 22-byte record, the layout the NES firmware uses), so the speaker pairs once. NOT
+; at $3FF000 as the other emulators keep it: on the Pico Plus 2 W that is inside
+; the PDP-11's RK0 pack ($240000 up). It sits just after the DF0 region.
+;
+; The radio's own firmware must be in flash at 2 MB ($200000, 232 KB):
+;   PureMetalForge.exe --radio-firmware Firmware\CYW43439\wb43439A0-7.95.49.00.combined.uf2 --port COMn
+; AudioBegin checks for it and says so, rather than letting the radio fail later.
+
+#BTKEY_SECTOR = $960000
+#CYW43_BLOB = $10200000
+#BT_LEAD_US = 60000                ; start 60 ms behind Paula: the ring (85 ms) is the cushion
+FlashRegion "btkey", #BTKEY_SECTOR, $1000, "raw"
+
+Global AudioRunning.i, AudioRc.i = -1, AudioLastPoll.i, AudioGap.i = 700
+Global Dim BtKeyPage.a(256)
+
+Procedure.i AudioSaveKey()
+  Protected i.i, ok.i
+  For i = 0 To 255
+    BtKeyPage(i) = 255
+  Next
+  BtKeyPage(0) = 66
+  BtKeyPage(1) = 84
+  BtKeyPage(2) = 75
+  BtKeyPage(3) = 49
+  If BtAudioKey(@BtKeyPage(4)) = 0
+    ProcedureReturn 0
+  EndIf
+  ; core 1 is not running yet: nothing else reads flash while it is written
+  ok = 0
+  If FlashRangeErase(#BTKEY_SECTOR, 4096)
+    ok = FlashRangeProgram(#BTKEY_SECTOR, @BtKeyPage(0), 256)
+  EndIf
+  ProcedureReturn ok
+EndProcedure
+
+; 1 when the speaker plays; 0 = silent (and why, on USB).
+Procedure.i AudioBegin(speaker.i)
+  Protected key.i, zero.i, i.i
+  zero = 1
+  For i = 0 To 5
+    If PeekA(speaker + i) <> 0
+      zero = 0
+    EndIf
+  Next
+  If zero
+    Say("Bluetooth: no speaker address in this build's wrapper; running silent")
+    Eol()
+    ProcedureReturn 0
+  EndIf
+  If PeekL(#CYW43_BLOB) = -1
+    Say("Bluetooth: STOP - the radio firmware is not in flash at $200000 (PureMetalForge --radio-firmware); running silent")
+    Eol()
+    ProcedureReturn 0
+  EndIf
+  Say("Bluetooth: connecting to the speaker")
+  Eol()
+  key = $10000000 + #BTKEY_SECTOR
+  If PeekA(key) = 66 And PeekA(key + 1) = 84 And PeekA(key + 2) = 75 And PeekA(key + 3) = 49
+    BtAudioSetKey(key + 4)
+  EndIf
+  BtAudioStereo(1)
+  AudioRc = BtAudioBegin(speaker)
+  If AudioRc <> 0
+    Say("Bluetooth: not playing, error ")
+    Num(AudioRc)
+    Say(" (HCI status ")
+    Num(BtAudioStatus())
+    Say("); running silent")
+    Eol()
+    ProcedureReturn 0
+  EndIf
+  If BtAudioKeyNew()
+    If AudioSaveKey()
+      Say("Bluetooth: paired; link key saved")
+    Else
+      Say("Bluetooth: paired; link key NOT saved (flash)")
+    EndIf
+  Else
+    Say("Bluetooth: reconnected with the saved link key")
+  EndIf
+  Eol()
+  BtAudioSource(@AudRing(0), #AUD_RING, @AudWr)
+  BtAudioLead(#BT_LEAD_US)
+  ; from here core 1 drives the radio: no USB pumping and no printing from the library
+  BtAudioPumps(0)
+  AudioRunning = 1
+  ProcedureReturn 1
+EndProcedure
+
+; Core 1: the library wants a call about every 0.15 ms while a frame is part-way
+; encoded and every 0.7 ms otherwise.
+ProcedureRAM AudioPoll()
+  Protected start.i
+  start = Micros()
+  If start - AudioLastPoll < AudioGap
+    ProcedureReturn
+  EndIf
+  AudioLastPoll = start
+  BtAudioPoll()
+  If BtAudioBusy()
+    AudioGap = 150
+  Else
+    AudioGap = 700
+  EndIf
+EndProcedure
+
+Global Core1Go.i
+
+ProcedureRAM Core1Main()
+  Repeat
+    If PeekL(@Core1Go)
+      AudioPoll()
+    EndIf
+  ForEver
+EndProcedure
+
+Procedure.i LaunchCore1()
+  McCore1ReleaseHold()
+  If McLaunchCore1() = 6
+    ProcedureReturn 1
+  EndIf
+  ProcedureReturn 0
+EndProcedure

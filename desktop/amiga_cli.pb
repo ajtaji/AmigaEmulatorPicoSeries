@@ -85,7 +85,12 @@ PrintN("CPU cycles " + Str(AmigaCpuCycles) + "  PC=" + Hex(M68kGetPC()) + " SR="
 PrintN("DMACON=" + Hex(DmaCon) + " INTENA=" + Hex(IntEna) + " INTREQ=" + Hex(IntReq) + " BPLCON0=" + Hex(BplCon0) + " COP1LC=" + Hex(Cop1Lc) + " copper state " + Str(CopState))
 PrintN("drive 0 track " + Str(DrvTrack(0)) + " motor " + Str(DrvMotor(0)) + " side " + Str(DrvSide))
 ; the last second of Paula's output: level and pitch of each side
-PrintN("audio ring: " + Str(AudWr) + " pairs written")
+; a hash of the whole ring as it stands: any change to Paula's output shows here
+Define h.q = 0
+For w = 0 To #AUD_RING * 2 - 1
+  h = (h * 31 + (AudRing(w) & $FFFF)) & $FFFFFFFF
+Next
+PrintN("audio ring: " + Str(AudWr) + " pairs written, hash " + RSet(Hex(h), 8, "0"))
 n = #AUD_RATE
 If AudWr < n : n = AudWr : EndIf
 If n > 0

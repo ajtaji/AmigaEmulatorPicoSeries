@@ -61,9 +61,12 @@ Procedure BlitFinish()
   EndIf
 EndProcedure
 
+; The minterm as eight masks, one per term: d is the OR of the terms whose bit
+; is set in LF (BlitMinterm's sum, without a test or a call per word).
 Procedure BlitArea(w.i, h.i)
   Protected x.i, y.i, a.i, b.i, c.i, d.i, ao.i, bo.i, an.i, bn.i, ash.i, bsh.i
   Protected desc.i, stp.i, usea.i, useb.i, usec.i, used.i, lf.i, fill.i, fcar.i, k.i, t.i, outw.i
+  Protected m0.i, m1.i, m2.i, m3.i, m4.i, m5.i, m6.i, m7.i, nc.i
   ash = (BltCon0 >> 12) & 15
   bsh = (BltCon1 >> 12) & 15
   usea = BltCon0 & $800
@@ -71,6 +74,14 @@ Procedure BlitArea(w.i, h.i)
   usec = BltCon0 & $200
   used = BltCon0 & $100
   lf = BltCon0 & $FF
+  m0 = -(lf & 1) & $FFFF
+  m1 = -((lf >> 1) & 1) & $FFFF
+  m2 = -((lf >> 2) & 1) & $FFFF
+  m3 = -((lf >> 3) & 1) & $FFFF
+  m4 = -((lf >> 4) & 1) & $FFFF
+  m5 = -((lf >> 5) & 1) & $FFFF
+  m6 = -((lf >> 6) & 1) & $FFFF
+  m7 = -((lf >> 7) & 1) & $FFFF
   desc = BltCon1 & 2
   fill = BltCon1 & $18
   stp = 2
@@ -84,7 +95,7 @@ Procedure BlitArea(w.i, h.i)
     fcar = Bool(BltCon1 & 4)
     For x = 0 To w - 1
       If usea
-        BltAdat = ChipRd(BltApt)
+        BltAdat = PeekU(ChipHost + (BltApt & ~1))
         BltApt = (BltApt + stp) & ChipMask
       EndIf
       an = BltAdat
@@ -101,7 +112,7 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       ao = an
       If useb
-        BltBdat = ChipRd(BltBpt)
+        BltBdat = PeekU(ChipHost + (BltBpt & ~1))
         BltBpt = (BltBpt + stp) & ChipMask
       EndIf
       bn = BltBdat
@@ -112,11 +123,12 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       bo = bn
       If usec
-        BltCdat = ChipRd(BltCpt)
+        BltCdat = PeekU(ChipHost + (BltCpt & ~1))
         BltCpt = (BltCpt + stp) & ChipMask
       EndIf
       c = BltCdat
-      d = BlitMinterm(lf, a, b, c)
+      nc = ~c
+      d = (a & ((b & ((c & m7) | (nc & m6))) | (~b & ((c & m5) | (nc & m4))))) | (~a & ((b & ((c & m3) | (nc & m2))) | (~b & ((c & m1) | (nc & m0)))))
       If fill
         outw = 0
         For k = 0 To 15
@@ -136,7 +148,7 @@ Procedure BlitArea(w.i, h.i)
       EndIf
       BltDdat = d
       If used
-        ChipWr(BltDpt, d)
+        PokeU(ChipHost + (BltDpt & ~1), d)
         BltDpt = (BltDpt + stp) & ChipMask
       EndIf
     Next
@@ -277,7 +289,7 @@ Procedure BlitLine(h.i)
 EndProcedure
 
 ; BLTSIZE was written: the blit happens now; it reads busy for its duration.
-Procedure BlitStart()
+Procedure BlitStartNow()
   Protected w.i, h.i, cck.i, per.i
   w = Cust(#R_BLTSIZE >> 1) & 63
   h = (Cust(#R_BLTSIZE >> 1) >> 6) & 1023
@@ -312,4 +324,15 @@ Procedure BlitStart()
   EndIf
   BltActive = 1
   BltEndCyc = AmigaNowCyc() + cck * 2
+EndProcedure
+
+Procedure BlitStart()
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i
+    q0 = AmClock()
+    BlitStartNow()
+    AmProf(8) = AmProf(8) + AmClock() - q0
+  CompilerElse
+    BlitStartNow()
+  CompilerEndIf
 EndProcedure

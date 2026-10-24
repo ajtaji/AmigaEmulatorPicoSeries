@@ -450,7 +450,7 @@ Procedure DispDraw(x1.i)
 EndProcedure
 
 ; Draw up to colour clock h of this line (a register is about to change).
-Procedure DispCatchUp(h.i)
+Procedure DispCatchUpNow(h.i)
   Protected x.i
   If DispFetched = 0 And h >= (DdfStrt & $FC)
     DispFetch()
@@ -462,6 +462,17 @@ Procedure DispCatchUp(h.i)
   If x > 0
     DispDraw(x)
   EndIf
+EndProcedure
+
+Procedure DispCatchUp(h.i)
+  CompilerIf #AM_PROFILE = 1
+    Protected q0.i
+    q0 = AmClock()
+    DispCatchUpNow(h)
+    AmProf(9) = AmProf(9) + AmClock() - q0
+  CompilerElse
+    DispCatchUpNow(h)
+  CompilerEndIf
 EndProcedure
 
 ; End of a line: draw the rest and hand it to the platform.

@@ -509,8 +509,12 @@ EndProcedure
 
 ; One line: the CPU runs, interleaved with the copper and the blitter.
 Procedure AmigaRunLine()
-  Protected lineEnd.i, t.i, used.i
+  Protected lineEnd.i, t.i, used.i, p0.i, pt.i
+  CompilerIf #AM_PROFILE = 1
+    p0 = AmClock()
+  CompilerEndIf
   DispBeginLine()
+  AmProfMark(0)
   lineEnd = LineCyc0 + #AM_CPU_LINE
   While SliceStart < lineEnd
     t = lineEnd
@@ -522,22 +526,31 @@ Procedure AmigaRunLine()
     EndIf
     If t > SliceStart
       used = M68kRun(t - SliceStart)
+      CompilerIf #AM_PROFILE = 1
+        AmProf(10) = AmProf(10) + 1
+      CompilerEndIf
       SliceStart = SliceStart + used
       AmigaCpuCycles = AmigaCpuCycles + used
       Budget = 0
       CLeft = 0
     EndIf
+    AmProfMark(1)
     If CopState <> #COP_STOP And CopNextCyc <= SliceStart
       CopperRun(SliceStart)
     EndIf
+    AmProfMark(2)
     If BltActive And BltEndCyc <= SliceStart
       BlitFinish()
     EndIf
+    AmProfMark(3)
   Wend
   DispEndLine()
+  AmProfMark(4)
   AudioLine()
+  AmProfMark(5)
   DiskLine()
   KbdLine()
+  AmProfMark(6)
   ; the timers run whether or not the CPU looks at them: their interrupts come on time to the line
   CiaSync(0)
   CiaSync(1)
@@ -569,6 +582,7 @@ Procedure AmigaRunLine()
     CiaTodTick(0)
     CopperVBlank()
   EndIf
+  AmProfMark(7)
 EndProcedure
 
 ; Run until the end of the current frame.

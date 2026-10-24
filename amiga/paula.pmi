@@ -3,15 +3,17 @@
 ;
 ; Audio: each channel steps through its sample at its period (colour clocks per
 ; byte); the mixer takes #AUD_RATE samples a second, left = channels 0 + 3,
-; right = 1 + 2, into AudRing (16-bit stereo pairs) for the platform to play.
+; right = 1 + 2, into AudRing for the platform to play: 16-bit stereo pairs,
+; or with #AUD_MONO = 1 one 16-bit sample (left + right) each - what a
+; Bluetooth speaker link takes (the Pico Plus 2 W reads the ring as it is).
 ;
 ; Disk: the selected drive's track is a ring of MFM words built from the .ADF
 ; (AmigaDOS format, 11 sectors). The disk turns at 300 RPM: two words pass the
 ; head every line. Disk DMA reads (or writes) those words; with WORDSYNC it
 ; starts after the sync word. Every turn, the index pulse goes to CIA-B FLAG.
 
-#AUD_RATE = 44100
-; #AUD_RING (stereo pairs, a power of two) is set by the platform before this file
+; #AUD_RATE, #AUD_MONO and #AUD_RING (samples, a power of two) are set by the
+; platform before this file.
 #TRACK_WORDS = 6400               ; the MFM words of one track (a turn: 6250 lines * 2... see DiskLine)
 #ADF_BYTES = 901120
 
@@ -159,30 +161,42 @@ Procedure.i AudioVol(c.i)
   ProcedureReturn v
 EndProcedure
 
-; One line of audio: the samples that fall in it.
+; One line of audio: the samples that fall in it. This runs after the line's CPU
+; and copper work, so no register changes while it runs: the volumes are read
+; once, and with no channel playing nothing steps.
 Procedure AudioLine()
-  Protected n.i, k.i, l.i, r.i, chunk.i
+  Protected n.i, k.i, c.i, l.i, r.i, chunk.i, act.i, v0.i, v1.i, v2.i, v3.i
   AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
-  n = 0
-  While AudAcc >= 3546895
-    AudAcc = AudAcc - 3546895
-    n = n + 1
-  Wend
+  n = AudAcc / 3546895
+  AudAcc = AudAcc - n * 3546895
+  act = AudOn(0) | AudOn(1) | AudOn(2) | AudOn(3) | AudCpu(0) | AudCpu(1) | AudCpu(2) | AudCpu(3)
   If n = 0
-    AudioStep(#AM_CCK_LINE)
+    If act
+      AudioStep(#AM_CCK_LINE)
+    EndIf
     ProcedureReturn
   EndIf
+  v0 = AudioVol(0)
+  v1 = AudioVol(1)
+  v2 = AudioVol(2)
+  v3 = AudioVol(3)
   chunk = #AM_CCK_LINE / n
   For k = 0 To n - 1
-    If k = n - 1
-      AudioStep(#AM_CCK_LINE - chunk * (n - 1))
-    Else
-      AudioStep(chunk)
+    If act
+      If k = n - 1
+        AudioStep(#AM_CCK_LINE - chunk * (n - 1))
+      Else
+        AudioStep(chunk)
+      EndIf
     EndIf
-    l = AudOut(0) * AudioVol(0) + AudOut(3) * AudioVol(3)
-    r = AudOut(1) * AudioVol(1) + AudOut(2) * AudioVol(2)
-    AudRing((AudWr & (#AUD_RING - 1)) * 2) = l * 2
-    AudRing((AudWr & (#AUD_RING - 1)) * 2 + 1) = r * 2
+    l = AudOut(0) * v0 + AudOut(3) * v3
+    r = AudOut(1) * v1 + AudOut(2) * v2
+    CompilerIf #AUD_MONO = 1
+      AudRing(AudWr & (#AUD_RING - 1)) = l + r
+    CompilerElse
+      AudRing((AudWr & (#AUD_RING - 1)) * 2) = l * 2
+      AudRing((AudWr & (#AUD_RING - 1)) * 2 + 1) = r * 2
+    CompilerEndIf
     AudWr = AudWr + 1
   Next
 EndProcedure

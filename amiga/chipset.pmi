@@ -142,6 +142,23 @@ Global AmigaETotal.i, AmigaEFrac.i
 
 Declare AmigaSetIpl()
 Declare DispCatchUp(hpos.i)
+; #AM_PROFILE = 1 (the platform sets it, with AmClock(): a free-running cycle count):
+; time per part of the line, summed in AmProf() - 0 display start, 1 CPU (with what its
+; register writes start: immediate blits, display catch-up), 2 copper, 3 blit ends,
+; 4 display end of line, 5 audio, 6 disk + keyboard, 7 CIAs + frame end; and inside
+; those, 8 blitter (BlitStart) and 9 display catch-up (DispCatchUp).
+CompilerIf #AM_PROFILE = 1
+  Global Dim AmProf.i(11)        ; 10: M68kRun calls
+  Macro AmProfMark(k)
+    pt = AmClock()
+    AmProf(k) = AmProf(k) + pt - p0
+    p0 = pt
+  EndMacro
+CompilerElse
+  Macro AmProfMark(k)
+  EndMacro
+CompilerEndIf
+
 Declare BlitStart()
 Declare BlitFinish()
 Declare.i BlitBusy()
