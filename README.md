@@ -146,4 +146,41 @@ Flash regions: `kickstart` at $200000 (512 KB, host word order),
 ## ROMs and disks
 
 Kickstart and commercial disks are copyrighted: none are in this repository
-(`.gitignore` refuses `*.rom`, `*.adf`).
+(`.gitignore` refuses `*.rom`, `*.adf`; the one exception is our own
+`bootrom/bootrom.rom`).
+
+### Booting a disk with no Kickstart (`bootrom/`)
+
+`bootrom/bootrom.s` is the emulator's own 256 KB boot ROM, assembled by
+`tools/asm68k.py` and embedded in the desktop programs. It does what
+Kickstart's strap does for a disk that takes the machine over:
+
+- reads DF0's bootblock (sectors 0-1) by disk DMA;
+- checks for `DOS` and verifies the checksum;
+- enters the bootblock at +12 with A1 = a trackdisk request and A6 = a small
+  ExecBase.
+
+The ExecBase provides:
+
+- AllocMem, AllocAbs, FreeMem and AvailMem;
+- DoIO, SendIO, WaitIO and CheckIO, handling CMD_READ and TD_MOTOR (other
+  trackdisk commands do nothing);
+- Forbid/Permit, Disable/Enable and CacheClearU;
+- FindResident and OpenLibrary, which return none.
+
+It stops loudly, on serial and with a red screen, on:
+
+- any other Exec call (its offset is printed);
+- a bad checksum;
+- a disk with no DOS bootblock;
+- no disk.
+
+```
+desktop/amiga_cli.exe --boot disk.adf --frames 300 --shot out.png
+```
+
+The window program uses the boot ROM whenever no Kickstart has been chosen.
+`tests/boot/` holds a bootblock that reads 20 KB across tracks 0-3 (both
+sides, one step) and a program that checks the sum of those bytes and counts
+VBLANK interrupts. Make the disk with `tests/boot/mkadf.py`, which prints the
+sum the program must report.

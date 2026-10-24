@@ -394,7 +394,7 @@ EndProcedure
 ; cycles as the 68000 sets them, undefined flags included. Returns 1 for a
 ; divide by zero (the caller takes the exception).
 ProcedureRAM.i M68kDivU(rg.i, v.i)
-  Protected a.n, q.n, r.n, h.n, i.i, mc.i
+  Protected a.i, q.i, r.i, h.i, i.i, mc.i, lo.i
   a = Reg(rg)
   v = v & $FFFF
   If v = 0
@@ -404,7 +404,7 @@ ProcedureRAM.i M68kDivU(rg.i, v.i)
     FC = 0
     ProcedureReturn 1
   EndIf
-  If (a >> 16) >= v
+  If ((a >> 16) & $FFFF) >= v
     FV = 1 << 31
     FN = 1 << 31
     FZ = 1
@@ -412,8 +412,17 @@ ProcedureRAM.i M68kDivU(rg.i, v.i)
     CLeft = CLeft - 10
     ProcedureReturn 0
   EndIf
-  q = a / v
-  r = a - q * v
+  r = (a >> 16) & $FFFF
+  lo = a & $FFFF
+  q = 0
+  For i = 15 To 0 Step -1
+    r = (r << 1) | ((lo >> i) & 1)
+    q = q << 1
+    If r >= v
+      r = r - v
+      q = q | 1
+    EndIf
+  Next
   Reg(rg) = (r << 16) | q
   FN = ((q >> 15) & 1) << 31
   FZ = q
@@ -422,11 +431,11 @@ ProcedureRAM.i M68kDivU(rg.i, v.i)
   mc = 38
   h = v << 16
   For i = 0 To 14
-    If a >= $80000000
+    If a < 0
       a = (a << 1) - h
     Else
       a = a << 1
-      If a >= h
+      If (a ! $80000000) >= (h ! $80000000)
         a = a - h
         mc = mc + 1
       Else
@@ -439,9 +448,9 @@ ProcedureRAM.i M68kDivU(rg.i, v.i)
 EndProcedure
 
 ProcedureRAM.i M68kDivS(rg.i, v.i)
-  Protected a.i, d.i, ua.n, ud.n, q.n, r.n, aq.i, i.i, mc.i
+  Protected a.i, d.i, ua.i, ud.i, q.i, r.i, aq.i, i.i, mc.i, lo.i
   a = Reg(rg)
-  d = ((v) << 16) >> 16
+  d = (((v) << 16) >> 16)
   If d = 0
     FN = 0
     FZ = 0
@@ -463,7 +472,7 @@ ProcedureRAM.i M68kDivS(rg.i, v.i)
   Else
     ud = d
   EndIf
-  If (ua >> 16) >= ud
+  If ((ua >> 16) & $FFFF) >= ud
     FV = 1 << 31
     FN = 1 << 31
     FZ = 1
@@ -471,7 +480,17 @@ ProcedureRAM.i M68kDivS(rg.i, v.i)
     CLeft = CLeft - (mc + 2) * 2
     ProcedureReturn 0
   EndIf
-  q = ua / ud
+  r = (ua >> 16) & $FFFF
+  lo = ua & $FFFF
+  q = 0
+  For i = 15 To 0 Step -1
+    r = (r << 1) | ((lo >> i) & 1)
+    q = q << 1
+    If r >= ud
+      r = r - ud
+      q = q | 1
+    EndIf
+  Next
   aq = q
   mc = mc + 55
   If d >= 0
@@ -488,8 +507,6 @@ ProcedureRAM.i M68kDivS(rg.i, v.i)
     aq = aq << 1
   Next
   CLeft = CLeft - mc * 2
-  q = ua / ud
-  r = ua - q * ud
   If (a < 0) <> (d < 0)
     q = -q
   EndIf
@@ -3807,7 +3824,7 @@ MoveB0:
   Goto SrcB(op & 63)
 S1:
   PokeA(@Reg(0) + (((op >> 9) & 7) << 2), vs)
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3833,7 +3850,7 @@ S2:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3867,7 +3884,7 @@ S4:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3911,7 +3928,7 @@ S6:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3926,7 +3943,7 @@ ME7:
     AeCode = AeCode | 8
   EndIf
   CLeft = CLeft - 2
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3951,7 +3968,7 @@ S8:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3961,7 +3978,7 @@ S8:
 ME9:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 8
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -3992,7 +4009,7 @@ S10:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4002,7 +4019,7 @@ S10:
 ME11:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 10
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4027,7 +4044,7 @@ S12:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4037,7 +4054,7 @@ S12:
 ME13:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 8
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4062,7 +4079,7 @@ S14:
   Else
     M68kWr8(ea, vs)
   EndIf
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4083,7 +4100,7 @@ ME15:
   FV = 0
   FC = 0
   Else
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4101,7 +4118,7 @@ MoveW0:
   Goto SrcW(op & 63)
 S16:
   PokeU(@Reg(0) + (((op >> 9) & 7) << 2), vs)
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4119,7 +4136,7 @@ MoveW1:
   EaRet = ?S17
   Goto SrcW(op & 63)
 S17:
-  Reg(8 + ((op >> 9) & 7)) = ((vs) << 16) >> 16
+  Reg(8 + ((op >> 9) & 7)) = (((vs) << 16) >> 16)
   CLeft = CLeft - 4
   PIP = PIP + xo
   NextOp()
@@ -4146,7 +4163,7 @@ S18:
       Goto ME19
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4184,7 +4201,7 @@ S20:
       Goto ME21
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4224,7 +4241,7 @@ S22:
       Goto ME23
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4239,7 +4256,7 @@ ME23:
     AeCode = AeCode | 8
   EndIf
   CLeft = CLeft - 2
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4268,7 +4285,7 @@ S24:
       Goto ME25
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4278,7 +4295,7 @@ S24:
 ME25:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 8
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4313,7 +4330,7 @@ S26:
       Goto ME27
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4323,7 +4340,7 @@ S26:
 ME27:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 10
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4352,7 +4369,7 @@ S28:
       Goto ME29
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4362,7 +4379,7 @@ S28:
 ME29:
   AePc = PIP - PBase + xo - 2
   CLeft = CLeft - 8
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4391,7 +4408,7 @@ S30:
       Goto ME31
     EndIf
   EndIf
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4412,7 +4429,7 @@ ME31:
   FV = 0
   FC = 0
   Else
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4768,7 +4785,7 @@ ORIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4788,7 +4805,7 @@ A49:
     vd = M68kRd8(ea)
   EndIf
   vr = vd | vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4825,7 +4842,7 @@ ORIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4849,7 +4866,7 @@ A51:
     EndIf
   EndIf
   vr = vd | vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -4947,7 +4964,7 @@ ANDIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -4967,7 +4984,7 @@ A55:
     vd = M68kRd8(ea)
   EndIf
   vr = vd & vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -5004,7 +5021,7 @@ ANDIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -5028,7 +5045,7 @@ A57:
     EndIf
   EndIf
   vr = vd & vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -5123,7 +5140,7 @@ SUBIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -5144,7 +5161,7 @@ A61:
     vd = M68kRd8(ea)
   EndIf
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -5169,7 +5186,7 @@ SUBIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -5194,7 +5211,7 @@ A63:
     EndIf
   EndIf
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -5280,7 +5297,7 @@ ADDIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -5301,7 +5318,7 @@ A67:
     vd = M68kRd8(ea)
   EndIf
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -5326,7 +5343,7 @@ ADDIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -5351,7 +5368,7 @@ A69:
     EndIf
   EndIf
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -5440,7 +5457,7 @@ EORIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -5460,7 +5477,7 @@ A73:
     vd = M68kRd8(ea)
   EndIf
   vr = vd ! vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -5497,7 +5514,7 @@ EORIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -5521,7 +5538,7 @@ A75:
     EndIf
   EndIf
   vr = vd ! vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -5616,7 +5633,7 @@ CMPIB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -5635,7 +5652,7 @@ A79:
     vd = M68kRd8(ea)
   EndIf
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -5653,7 +5670,7 @@ CMPIW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -5676,7 +5693,7 @@ A81:
     EndIf
   EndIf
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -6163,8 +6180,8 @@ NEGXB:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
   FX = FC
@@ -6185,8 +6202,8 @@ A105:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
   FX = FC
@@ -6210,8 +6227,8 @@ NEGXW:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
   FX = FC
@@ -6236,8 +6253,8 @@ A107:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
   FX = FC
@@ -6265,7 +6282,7 @@ NEGXL:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vd) & (vr ! vd)
   FC = (vs & ~vd) | (vr & ~vd) | (vs & vr)
@@ -6292,7 +6309,7 @@ A109:
   vs = vd
   vd = 0
   vr = 0 - vs - ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vd) & (vr ! vd)
   FC = (vs & ~vd) | (vr & ~vd) | (vs & vr)
@@ -6465,7 +6482,7 @@ NEGB:
   vs = vd
   vd = 0
   vr = 0 - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -6487,7 +6504,7 @@ A117:
   vs = vd
   vd = 0
   vr = 0 - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -6512,7 +6529,7 @@ NEGW:
   vs = vd
   vd = 0
   vr = 0 - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -6538,7 +6555,7 @@ A119:
   vs = vd
   vd = 0
   vr = 0 - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -6623,7 +6640,7 @@ NOTB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = ~vd
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -6642,7 +6659,7 @@ A123:
     vd = M68kRd8(ea)
   EndIf
   vr = ~vd
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -6664,7 +6681,7 @@ NOTW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = ~vd
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -6687,7 +6704,7 @@ A125:
     EndIf
   EndIf
   vr = ~vd
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -6949,9 +6966,9 @@ ExtWMovemW:
   If (op & $38) <> 0
   Goto MOVEM136
   EndIf
-  vr = ((PeekA(@Reg(0) + ((op & 7) << 2))) << 24) >> 24
+  vr = PeekB(@Reg(0) + ((op & 7) << 2))
   PokeU(@Reg(0) + ((op & 7) << 2), vr)
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -7039,7 +7056,7 @@ ExtLMovemL:
   If (op & $38) <> 0
   Goto MOVEM139
   EndIf
-  vr = ((PeekU(@Reg(0) + ((op & 7) << 2))) << 16) >> 16
+  vr = PeekW(@Reg(0) + ((op & 7) << 2))
   Reg(op & 7) = vr
   FZ = vr
   FN = FZ
@@ -7143,7 +7160,7 @@ TSTB:
   EaRet = ?S142
   Goto SrcB(op & 63)
 S142:
-  FZ = (vs) << 24
+  FZ = ((vs) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -7167,7 +7184,7 @@ TSTW:
   EaRet = ?S143
   Goto SrcW(op & 63)
 S143:
-  FZ = (vs) << 16
+  FZ = ((vs) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -7209,7 +7226,7 @@ TAS:
   Goto M145
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
-  FZ = (vd) << 24
+  FZ = ((vd) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -7227,7 +7244,7 @@ A146:
   Else
     vd = M68kRd8(ea)
   EndIf
-  FZ = (vd) << 24
+  FZ = ((vd) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -7277,7 +7294,7 @@ LOOP149:
       Goto AddrErr
     EndIf
   EndIf
-      Reg(rg) = ((vr) << 16) >> 16
+      Reg(rg) = (((vr) << 16) >> 16)
       ea = ea + 2
   CLeft = CLeft - 4
     EndIf
@@ -7685,8 +7702,8 @@ CHK:
   EaRet = ?S155
   Goto SrcW(op & 63)
 S155:
-  vd = ((PeekU(@Reg(0) + (((op >> 9) & 7) << 2))) << 16) >> 16
-  vs = ((vs) << 16) >> 16
+  vd = PeekW(@Reg(0) + (((op >> 9) & 7) << 2))
+  vs = (((vs) << 16) >> 16)
   FZ = vd & $FFFF
   FV = 0
   FC = 0
@@ -7740,7 +7757,7 @@ ADDQB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -7762,7 +7779,7 @@ A159:
     vd = M68kRd8(ea)
   EndIf
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -7792,7 +7809,7 @@ SUBQB:
   EndIf
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -7814,7 +7831,7 @@ A162:
     vd = M68kRd8(ea)
   EndIf
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -7844,7 +7861,7 @@ ADDQW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -7873,7 +7890,7 @@ A165:
     EndIf
   EndIf
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -7907,7 +7924,7 @@ SUBQW:
   EndIf
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -7936,7 +7953,7 @@ A168:
     EndIf
   EndIf
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -9234,7 +9251,7 @@ BRA:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9258,7 +9275,7 @@ BSR:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   vs = (PIP - PBase + xo)
@@ -9307,7 +9324,7 @@ BHI:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9341,7 +9358,7 @@ BLS:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9375,7 +9392,7 @@ BCC:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9409,7 +9426,7 @@ BCS:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9443,7 +9460,7 @@ BNE:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9477,7 +9494,7 @@ BEQ:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9511,7 +9528,7 @@ BVC:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9545,7 +9562,7 @@ BVS:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9579,7 +9596,7 @@ BPL:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9613,7 +9630,7 @@ BMI:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9647,7 +9664,7 @@ BGE:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9681,7 +9698,7 @@ BLT:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9715,7 +9732,7 @@ BGT:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9749,7 +9766,7 @@ BLE:
     vd = (PIP - PBase) + 2 + PeekW(PIP + 2)
     xo = 4
   Else
-    vd = (PIP - PBase) + 2 + ((vs) << 24) >> 24
+    vd = (PIP - PBase) + 2 + (((vs) << 24) >> 24)
   EndIf
   vd = vd
   If vd & 1
@@ -9768,7 +9785,7 @@ BLE:
 MOVEQ:
   op = PeekU(PIP)
   xo = 2
-  vr = ((op & $FF) << 24) >> 24
+  vr = (((op & $FF) << 24) >> 24)
   Reg((op >> 9) & 7) = vr
   FZ = vr
   FN = FZ
@@ -9793,7 +9810,7 @@ ORBEaDn:
 S223:
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -9819,7 +9836,7 @@ A225:
   EndIf
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -9930,7 +9947,7 @@ ORWEaDn:
 S227:
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -9960,7 +9977,7 @@ A229:
   EndIf
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd | vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -10063,7 +10080,7 @@ SUBBEaDn:
 S233:
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -10090,7 +10107,7 @@ A235:
   EndIf
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -10111,8 +10128,8 @@ X234:
   vs = PeekA(@Reg(0) + ((op & 7) << 2))
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
   FX = FC
@@ -10150,8 +10167,8 @@ XM236:
     vd = M68kRd8(ea)
   EndIf
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
   FX = FC
@@ -10177,7 +10194,7 @@ SUBWEaDn:
 S237:
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -10208,7 +10225,7 @@ A239:
   EndIf
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -10233,8 +10250,8 @@ X238:
   vs = PeekU(@Reg(0) + ((op & 7) << 2))
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
   FX = FC
@@ -10272,8 +10289,8 @@ XM240:
     EndIf
   EndIf
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
   FX = FC
@@ -10365,7 +10382,7 @@ X242:
   vs = Reg(op & 7)
   vd = Reg((op >> 9) & 7)
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vd) & (vr ! vd)
   FC = (vs & ~vd) | (vr & ~vd) | (vs & vr)
@@ -10422,7 +10439,7 @@ XM244:
     EndIf
   EndIf
   vr = vd - vs - ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vd) & (vr ! vd)
   FC = (vs & ~vd) | (vr & ~vd) | (vs & vr)
@@ -10455,7 +10472,7 @@ CMPBEaDn:
 S245:
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -10480,7 +10497,7 @@ A247:
   EndIf
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -10500,7 +10517,7 @@ X246:
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vd = PeekA(@Reg(0) + ((op & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -10538,7 +10555,7 @@ CMPM248:
     vd = M68kRd8(ea)
   EndIf
   vr = vd - vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 24
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 24
@@ -10558,7 +10575,7 @@ CMPWEaDn:
 S249:
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -10587,7 +10604,7 @@ A251:
   EndIf
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -10611,7 +10628,7 @@ X250:
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vd = PeekU(@Reg(0) + ((op & 7) << 2))
   vr = vd ! vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -10649,7 +10666,7 @@ CMPM252:
     EndIf
   EndIf
   vr = vd - vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vd) & (vr ! vd)) << 16
   FC = ((vs & ~vd) | (vr & ~vd) | (vs & vr)) << 16
@@ -10788,7 +10805,7 @@ ANDBEaDn:
 S257:
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -10814,7 +10831,7 @@ A259:
   EndIf
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = 0
   FC = 0
@@ -10923,7 +10940,7 @@ ANDWEaDn:
 S261:
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -10953,7 +10970,7 @@ A263:
   EndIf
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd & vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = 0
   FC = 0
@@ -11085,7 +11102,7 @@ ADDBEaDn:
 S268:
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -11112,7 +11129,7 @@ A270:
   EndIf
   vs = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
@@ -11133,8 +11150,8 @@ X269:
   vs = PeekA(@Reg(0) + ((op & 7) << 2))
   vd = PeekA(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
   FX = FC
@@ -11172,8 +11189,8 @@ XM271:
     vd = M68kRd8(ea)
   EndIf
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 24
-  FN = (vr) << 24
+  FZ = FZ | (((vr) << 24))
+  FN = ((vr) << 24)
   FV = ((vs ! vr) & (vd ! vr)) << 24
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 24
   FX = FC
@@ -11199,7 +11216,7 @@ ADDWEaDn:
 S272:
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -11230,7 +11247,7 @@ A274:
   EndIf
   vs = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
@@ -11255,8 +11272,8 @@ X273:
   vs = PeekU(@Reg(0) + ((op & 7) << 2))
   vd = PeekU(@Reg(0) + (((op >> 9) & 7) << 2))
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
   FX = FC
@@ -11294,8 +11311,8 @@ XM275:
     EndIf
   EndIf
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | (vr) << 16
-  FN = (vr) << 16
+  FZ = FZ | (((vr) << 16))
+  FN = ((vr) << 16)
   FV = ((vs ! vr) & (vd ! vr)) << 16
   FC = ((vs & vd) | ((vs | vd) & ~vr)) << 16
   FX = FC
@@ -11387,7 +11404,7 @@ X277:
   vs = Reg(op & 7)
   vd = Reg((op >> 9) & 7)
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vr) & (vd ! vr)
   FC = (vs & vd) | ((vs | vd) & ~vr)
@@ -11444,7 +11461,7 @@ XM279:
     EndIf
   EndIf
   vr = vd + vs + ((FX >> 31) & 1)
-  FZ = FZ | vr
+  FZ = FZ | (vr)
   FN = vr
   FV = (vs ! vr) & (vd ! vr)
   FC = (vs & vd) | ((vs | vd) & ~vr)
@@ -11475,7 +11492,7 @@ SUBAW:
   EaRet = ?S280
   Goto SrcW(op & 63)
 S280:
-  vs = ((vs) << 16) >> 16
+  vs = (((vs) << 16) >> 16)
   rg = 8 + ((op >> 9) & 7)
   Reg(rg) = Reg(rg) - vs
   CLeft = CLeft - 8
@@ -11511,7 +11528,7 @@ CMPAW:
   EaRet = ?S282
   Goto SrcW(op & 63)
 S282:
-  vs = ((vs) << 16) >> 16
+  vs = (((vs) << 16) >> 16)
   rg = 8 + ((op >> 9) & 7)
   vd = Reg(rg)
   vr = vd - vs
@@ -11554,7 +11571,7 @@ ADDAW:
   EaRet = ?S284
   Goto SrcW(op & 63)
 S284:
-  vs = ((vs) << 16) >> 16
+  vs = (((vs) << 16) >> 16)
   rg = 8 + ((op >> 9) & 7)
   Reg(rg) = Reg(rg) + vs
   CLeft = CLeft - 8
@@ -11622,7 +11639,7 @@ MULS:
   EaRet = ?S287
   Goto SrcW(op & 63)
 S287:
-  vr = ((PeekU(@Reg(0) + (((op >> 9) & 7) << 2))) << 16) >> 16 * ((vs) << 16) >> 16
+  vr = PeekW(@Reg(0) + (((op >> 9) & 7) << 2)) * (((vs) << 16) >> 16)
   x = ((vs << 1) ! vs) & $FFFF
   Reg((op >> 9) & 7) = vr
   FZ = vr
@@ -11714,14 +11731,14 @@ T293:
   EndIf
   FC = ((vr >> 7) & 1) << 31
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D296
 Z295:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D296:
   Goto O294
@@ -11730,7 +11747,7 @@ T290:
   Goto Z297
   EndIf
   If rg < 8
-    vr = (((vd) << 24) >> 24 >> rg) & $FF
+    vr = ((((vd) << 24) >> 24) >> rg) & $FF
     FC = ((vd >> (rg - 1)) & 1) << 31
   Else
     If vd & $80
@@ -11743,14 +11760,14 @@ T290:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D298
 Z297:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D298:
   Goto O294
@@ -11767,14 +11784,14 @@ T291:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D300
 Z299:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D300:
   Goto O294
@@ -11797,14 +11814,14 @@ T292:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D302
 Z301:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D302:
   Goto O294
@@ -11846,14 +11863,14 @@ T306:
   EndIf
   FC = ((vr >> 15) & 1) << 31
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D309
 Z308:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D309:
   Goto O307
@@ -11862,7 +11879,7 @@ T303:
   Goto Z310
   EndIf
   If rg < 16
-    vr = (((vd) << 16) >> 16 >> rg) & $FFFF
+    vr = ((((vd) << 16) >> 16) >> rg) & $FFFF
     FC = ((vd >> (rg - 1)) & 1) << 31
   Else
     If vd & $8000
@@ -11875,14 +11892,14 @@ T303:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D311
 Z310:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D311:
   Goto O307
@@ -11899,14 +11916,14 @@ T304:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D313
 Z312:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D313:
   Goto O307
@@ -11929,14 +11946,14 @@ T305:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D315
 Z314:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D315:
   Goto O307
@@ -12113,14 +12130,14 @@ T332:
   EndIf
   FC = (vr & 1) << 31
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D335
 Z334:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D335:
   Goto O333
@@ -12131,7 +12148,7 @@ T329:
   If rg < 8
     vr = (vd << rg) & $FF
     FC = ((vd >> (8 - rg)) & 1) << 31
-    x = ((vd) << 24) >> 24 >> (7 - rg)
+    x = (((vd) << 24) >> 24) >> (7 - rg)
     If x = 0 Or x = -1
       FV = 0
     Else
@@ -12151,14 +12168,14 @@ T329:
     EndIf
   EndIf
   FX = FC
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D337
 Z336:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D337:
   Goto O333
@@ -12175,14 +12192,14 @@ T330:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D339
 Z338:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D339:
   Goto O333
@@ -12205,14 +12222,14 @@ T331:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
   Goto D341
 Z340:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 24
+  FZ = ((vr) << 24)
   FN = FZ
 D341:
   Goto O333
@@ -12254,14 +12271,14 @@ T345:
   EndIf
   FC = (vr & 1) << 31
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D348
 Z347:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D348:
   Goto O346
@@ -12272,7 +12289,7 @@ T342:
   If rg < 16
     vr = (vd << rg) & $FFFF
     FC = ((vd >> (16 - rg)) & 1) << 31
-    x = ((vd) << 16) >> 16 >> (15 - rg)
+    x = (((vd) << 16) >> 16) >> (15 - rg)
     If x = 0 Or x = -1
       FV = 0
     Else
@@ -12292,14 +12309,14 @@ T342:
     EndIf
   EndIf
   FX = FC
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D350
 Z349:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D350:
   Goto O346
@@ -12316,14 +12333,14 @@ T343:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D352
 Z351:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D352:
   Goto O346
@@ -12346,14 +12363,14 @@ T344:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D354
 Z353:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D354:
   Goto O346
@@ -12532,7 +12549,7 @@ A368:
   Goto Z369
   EndIf
   If rg < 16
-    vr = (((vd) << 16) >> 16 >> rg) & $FFFF
+    vr = ((((vd) << 16) >> 16) >> rg) & $FFFF
     FC = ((vd >> (rg - 1)) & 1) << 31
   Else
     If vd & $8000
@@ -12545,14 +12562,14 @@ A368:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D370
 Z369:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D370:
   t = PageW((ea >> 12) & $FFF)
@@ -12595,7 +12612,7 @@ A371:
   If rg < 16
     vr = (vd << rg) & $FFFF
     FC = ((vd >> (16 - rg)) & 1) << 31
-    x = ((vd) << 16) >> 16 >> (15 - rg)
+    x = (((vd) << 16) >> 16) >> (15 - rg)
     If x = 0 Or x = -1
       FV = 0
     Else
@@ -12615,14 +12632,14 @@ A371:
     EndIf
   EndIf
   FX = FC
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D373
 Z372:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D373:
   t = PageW((ea >> 12) & $FFF)
@@ -12671,14 +12688,14 @@ A374:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D376
 Z375:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D376:
   t = PageW((ea >> 12) & $FFF)
@@ -12727,14 +12744,14 @@ A377:
   EndIf
   FX = FC
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D379
 Z378:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D379:
   t = PageW((ea >> 12) & $FFF)
@@ -12789,14 +12806,14 @@ A380:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D382
 Z381:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D382:
   t = PageW((ea >> 12) & $FFF)
@@ -12851,14 +12868,14 @@ A383:
   FX = y << 31
   FC = FX
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D385
 Z384:
   vr = vd
   FV = 0
   FC = FX
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D385:
   t = PageW((ea >> 12) & $FFF)
@@ -12905,14 +12922,14 @@ A386:
   EndIf
   FC = ((vr >> 15) & 1) << 31
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D388
 Z387:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D388:
   t = PageW((ea >> 12) & $FFF)
@@ -12959,14 +12976,14 @@ A389:
   EndIf
   FC = (vr & 1) << 31
   FV = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
   Goto D391
 Z390:
   vr = vd
   FV = 0
   FC = 0
-  FZ = (vr) << 16
+  FZ = ((vr) << 16)
   FN = FZ
 D391:
   t = PageW((ea >> 12) & $FFF)

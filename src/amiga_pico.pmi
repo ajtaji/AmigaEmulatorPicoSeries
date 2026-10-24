@@ -39,7 +39,7 @@ XIncludeFile "../amiga/input.pmi"
 XIncludeFile "../amiga/machine.pmi"
 XIncludeFile "io.pmi"
 
-Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i
+Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i
 Global Dim SerBuf.a(256)
 Global SerLen.i
 
@@ -99,6 +99,27 @@ Procedure.i HexIn(c.i)
   ProcedureReturn 0
 EndProcedure
 
+; Chip RAM as the 68000 sees it (big-endian), 64 bytes a line: "C" + hex, then "CEND".
+Procedure DumpChip()
+  Protected a.i, b.i, v.i
+  Say("CHIP frame=")
+  Num(FrameCount)
+  Eol()
+  For a = 0 To $7FFC0 Step 64
+    UsbSerialWrite(67)
+    For b = 0 To 63
+      v = PeekA(ChipHost + ((a + b) ! 1))
+      HexDigit(v >> 4)
+      HexDigit(v)
+    Next
+    Eol()
+    UsbSerialTask()
+    SafetyPet()
+  Next
+  Say("CEND")
+  Eol()
+EndProcedure
+
 Procedure.i RxWait()
   Protected c.i
   c = UsbSerialRead()
@@ -124,6 +145,9 @@ Procedure Commands()
       v = (HexIn(RxWait()) << 4) | HexIn(RxWait())
       AmigaKey(v, 0)
       AmigaKey(v, 1)
+    ElseIf c = 100
+      ; d + four hex digits: dump chip RAM when that frame has run (to diff against amiga_cli --dump-chip)
+      DumpAt = (HexIn(RxWait()) << 12) | (HexIn(RxWait()) << 8) | (HexIn(RxWait()) << 4) | HexIn(RxWait())
     ElseIf c = 109
       dx = (HexIn(RxWait()) << 4) | HexIn(RxWait())
       dy = (HexIn(RxWait()) << 4) | HexIn(RxWait())
@@ -186,6 +210,16 @@ Procedure Main()
   If PeekA($10000000 + #DF0_OFFSET) = $44
     DriveInsert(0, #PSRAM_BASE + #PS_DF0, 0)
   EndIf
+  ; what the CPU starts from: the ROM's first words as the core sees them, and the reset PC
+  Say("rom ")
+  Hex(PeekL(AmigaRomHost), 8)
+  Say(" ")
+  Hex(PeekL(AmigaRomHost + 4), 8)
+  Say(" pc=")
+  Hex(M68kGetPC(), 8)
+  Say(" ssp=")
+  Hex(M68kGetSSP(), 8)
+  Eol()
   Say("READY")
   Eol()
   t0 = Micros()
@@ -206,6 +240,10 @@ Procedure Main()
       ShotNow = 0
       Say("END")
       Eol()
+    EndIf
+    If DumpAt > 0 And FrameCount = DumpAt
+      DumpChip()
+      DumpAt = 0
     EndIf
     frames = frames + 1
     UsbSerialTask()

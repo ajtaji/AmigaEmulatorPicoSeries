@@ -4,6 +4,7 @@
 #
 #   powershell -File tools\pico_machine.ps1 -Port COM20 -Board feather2350 -Rom tests\chiptest.rom
 #              [-Adf disk.adf] [-Seconds 30] [-ShotAt 20] [-Shot docs\pico_chiptest.png]
+#              [-Dump chip.bin -DumpFrame 400]   chip RAM after that frame (diff with amiga_cli --dump-chip)
 param(
     [string]$Port = 'COM20',
     [string]$Board = 'feather2350',
@@ -12,7 +13,9 @@ param(
     [int]$Seconds = 30,
     [int]$ShotAt = 20,
     [string]$Shot = '',
-    [int]$Minutes = 5
+    [int]$Minutes = 5,
+    [string]$Dump = '',
+    [int]$DumpFrame = 400
 )
 $ErrorActionPreference = 'Stop'
 # the flash regions of each board's wrapper (srcmiga.<board>)
@@ -46,14 +49,15 @@ $lease = Get-AmigaPort $Port 'amiga-machine' $Minutes
 "lease taken $(Get-Date -Format T): $($lease.Tag)"
 try {
     if ($Rom) {
-        Forge ('--storage-write "' + (Join-Path $build 'kick.bin') + '" --offset ' + $KickOffset + ' --port ' + $Port) (Join-Path $build 'pm_kick.log')
+        Forge ('--storage-write "' + (Join-Path $build 'kick.bin') + '" --offset ' + $KickOffset + ' -t rp2350 --port ' + $Port) (Join-Path $build 'pm_kick.log')
     }
     if ($Adf) {
-        Forge ('--storage-write "' + (Join-Path $build 'df0.bin') + '" --offset ' + $Df0Offset + ' --port ' + $Port) (Join-Path $build 'pm_df0.log')
+        Forge ('--storage-write "' + (Join-Path $build 'df0.bin') + '" --offset ' + $Df0Offset + ' -t rp2350 --port ' + $Port) (Join-Path $build 'pm_df0.log')
     }
     Forge ('--compile "' + $src + '" -o "' + $uf2 + '" --port ' + $Port) (Join-Path $build 'pm_upload.log')
     $args2 = @('--port', $Port, '--seconds', $Seconds)
     if ($Shot) { $args2 += @('--shot', $Shot, '--at', $ShotAt) }
+    if ($Dump) { $args2 += @('--dump', $Dump, '--dump-frame', $DumpFrame) }
     & py -3 (Join-Path $PSScriptRoot 'pico_session.py') @args2
 } finally {
     Release-BoardLease $lease

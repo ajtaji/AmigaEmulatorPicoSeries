@@ -52,7 +52,7 @@ def SH(s):
 
 def shl(v, s):
     n = SH(s)
-    return v if n == 0 else f'({v}) << {n}'
+    return v if n == 0 else f'(({v}) << {n})'
 
 def TOP():
     return '$80000000' if IW == 32 else '$8000000000000000'
@@ -64,14 +64,36 @@ def L32(v):
     """A 32-bit result as the host keeps it: on the PC, masked to 32 bits."""
     return v if IW == 32 else f'(({v}) & $FFFFFFFF)'
 
+# Every helper returns ONE parenthesised operand: PureMetal ranks shifts below
+# + - and & | ! with * / (C-like, by ruling), PureBasic the other way round, so
+# a bare shift inside a sum is a different program on the Pico than on the PC
+# (tools/prec_check.py finds them).
+#
+# A shift sign-extends only a SIGNED operand on PureMetal: PeekU / PeekA are
+# unsigned there, so `(PeekU(a) << 16) >> 16` zero-fills (Help/_langref '>>').
+# A whole unsigned peek becomes the signed peek of the same width instead.
+def _whole_call(v, name):
+    if not v.startswith(name + '('):
+        return False
+    depth = 0
+    for i in range(len(name), len(v)):
+        depth += (v[i] == '(') - (v[i] == ')')
+        if depth == 0:
+            return i == len(v) - 1
+    return False
+
 def SX16(v):
-    return f'(({v}) << {IW - 16}) >> {IW - 16}'
+    if _whole_call(v, 'PeekU'):
+        return 'PeekW' + v[5:]
+    return f'((({v}) << {IW - 16}) >> {IW - 16})'
 
 def SX8(v):
-    return f'(({v}) << {IW - 8}) >> {IW - 8}'
+    if _whole_call(v, 'PeekA'):
+        return 'PeekB' + v[5:]
+    return f'((({v}) << {IW - 8}) >> {IW - 8})'
 
 def SX32(v):
-    return v if IW == 32 else f'(({v}) << 32) >> 32'
+    return v if IW == 32 else f'((({v}) << 32) >> 32)'
 
 def SXS(v, s):
     if s == 'B':
@@ -204,7 +226,7 @@ def flags_add(s, a='vs', b='vd', r='vr', x=True, zsticky=False):
     n = SH(s)
     sh = (lambda t: t) if n == 0 else (lambda t: f'({t}) << {n}')
     if zsticky:
-        e(f'  FZ = FZ | {shl(r, s)}')
+        e(f'  FZ = FZ | ({shl(r, s)})')
         e(f'  FN = {shl(r, s)}')
     else:
         nz(s, r)
@@ -218,7 +240,7 @@ def flags_sub(s, a='vs', b='vd', r='vr', x=True, zsticky=False):
     n = SH(s)
     sh = (lambda t: t) if n == 0 else (lambda t: f'({t}) << {n}')
     if zsticky:
-        e(f'  FZ = FZ | {shl(r, s)}')
+        e(f'  FZ = FZ | ({shl(r, s)})')
         e(f'  FN = {shl(r, s)}')
     else:
         nz(s, r)

@@ -32,6 +32,22 @@ def U32(v):
     return f'(({v}) & $FFFFFFFF)' if DESK() else v
 
 # ---------------------------------------------------------------- support procedures
+def udiv_steps(hi, lo, v):
+    """q, r := the 32-bit unsigned value hi:lo divided by v (16 bits), where
+    hi < v so q fits 16 bits: restoring division a bit at a time, every value
+    below $20000, so it is exact in a signed 32-bit .i."""
+    e(f'  r = {hi}')
+    e(f'  lo = {lo}')
+    e('  q = 0')
+    e('  For i = 15 To 0 Step -1')
+    e('    r = (r << 1) | ((lo >> i) & 1)')
+    e('    q = q << 1')
+    e(f'    If r >= {v}')
+    e(f'      r = r - {v}')
+    e('      q = q | 1')
+    e('    EndIf')
+    e('  Next')
+
 def emit_support():
     P = PROC()
     e('; ------------------------------------------------------------ slow memory paths')
@@ -410,7 +426,9 @@ def emit_divide_procs():
         e('  Protected a.q, q.q, r.q, h.q, i.i, mc.i')
         e('  a = Reg(rg) & $FFFFFFFF')
     else:
-        e('  Protected a.n, q.n, r.n, h.n, i.i, mc.i')
+        # no .n here: an unsigned quotient compared or divided as .n went wrong on
+        # the RP2350 (corpus DIVU/DIVS); 32-bit .i with explicit unsigned steps instead
+        e('  Protected a.i, q.i, r.i, h.i, i.i, mc.i, lo.i')
         e('  a = Reg(rg)')
     e('  v = v & $FFFF')
     e('  If v = 0')
@@ -420,7 +438,7 @@ def emit_divide_procs():
     e('    FC = 0')
     e('    ProcedureReturn 1')
     e('  EndIf')
-    e('  If (a >> 16) >= v')
+    e('  If ((a >> 16) & $FFFF) >= v')
     e(f'    FV = 1 << {T}')
     e(f'    FN = 1 << {T}')
     e('    FZ = 1')
@@ -428,8 +446,11 @@ def emit_divide_procs():
     e('    CLeft = CLeft - 10')
     e('    ProcedureReturn 0')
     e('  EndIf')
-    e('  q = a / v')
-    e('  r = a - q * v')
+    if DESK():
+        e('  q = a / v')
+        e('  r = a - q * v')
+    else:
+        udiv_steps('(a >> 16) & $FFFF', 'a & $FFFF', 'v')
     e(f'  Reg(rg) = (r << 16) | q')
     e(f'  FN = ((q >> 15) & 1) << {T}')
     e('  FZ = q')
@@ -444,11 +465,14 @@ def emit_divide_procs():
         e('    Else')
         e('      a = (a << 1) & $FFFFFFFF')
     else:
-        e('    If a >= $80000000')
+        e('    If a < 0')
         e('      a = (a << 1) - h')
         e('    Else')
         e('      a = a << 1')
-    e('      If a >= h')
+    if DESK():
+        e('      If a >= h')
+    else:
+        e('      If (a ! $80000000) >= (h ! $80000000)')
     e('        a = a - h')
     e('        mc = mc + 1')
     e('      Else')
@@ -465,7 +489,7 @@ def emit_divide_procs():
         e('  Protected a.q, d.q, q.q, r.q, aq.i, i.i, mc.i')
         e('  a = Reg(rg)')
     else:
-        e('  Protected a.i, d.i, ua.n, ud.n, q.n, r.n, aq.i, i.i, mc.i')
+        e('  Protected a.i, d.i, ua.i, ud.i, q.i, r.i, aq.i, i.i, mc.i, lo.i')
         e('  a = Reg(rg)')
     e(f'  d = {SX16("v")}')
     e('  If d = 0')
@@ -494,7 +518,7 @@ def emit_divide_procs():
         e('  Else')
         e('    ud = d')
         e('  EndIf')
-        e('  If (ua >> 16) >= ud')
+        e('  If ((ua >> 16) & $FFFF) >= ud')
     e(f'    FV = 1 << {T}')
     e(f'    FN = 1 << {T}')
     e('    FZ = 1')
@@ -505,7 +529,7 @@ def emit_divide_procs():
     if DESK():
         e('  aq = q / r')
     else:
-        e('  q = ua / ud')
+        udiv_steps('(ua >> 16) & $FFFF', 'ua & $FFFF', 'ud')
         e('  aq = q')
     e('  mc = mc + 55')
     e('  If d >= 0')
@@ -526,8 +550,6 @@ def emit_divide_procs():
         e('  q = a / d')
         e('  r = a - q * d')
     else:
-        e('  q = ua / ud')
-        e('  r = ua - q * ud')
         e('  If (a < 0) <> (d < 0)')
         e('    q = -q')
         e('  EndIf')

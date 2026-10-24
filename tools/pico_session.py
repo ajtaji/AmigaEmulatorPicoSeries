@@ -28,6 +28,8 @@ def main():
     ap.add_argument('--at', type=float, default=10)
     ap.add_argument('--keys', default='')
     ap.add_argument('--log', default='')
+    ap.add_argument('--dump', default='', help='write chip RAM (big-endian) here when --dump-frame has run')
+    ap.add_argument('--dump-frame', type=int, default=400)
     a = ap.parse_args()
     log = open(a.log, 'a', encoding='utf-8') if a.log else None
     port = serial.Serial(a.port, 115200, timeout=0.1)
@@ -37,6 +39,8 @@ def main():
     asked = False
     keys_sent = False
     rows = None
+    chip = None
+    dump_sent = False
     while time.time() - t0 < a.seconds:
         if a.shot and not asked and time.time() - t0 >= a.at:
             port.write(b's')
@@ -46,6 +50,9 @@ def main():
                 port.write(k.encode())
                 time.sleep(0.15)
             keys_sent = True
+        if a.dump and not dump_sent and time.time() - t0 >= 0.5:
+            port.write(b'd%04X' % a.dump_frame)
+            dump_sent = True
         buf += port.read(port.in_waiting or 1)
         while b'\n' in buf:
             line, buf = buf.split(b'\n', 1)
@@ -57,6 +64,18 @@ def main():
                 png(a.shot, 368, len(rows), rows)
                 print(f'picture: {a.shot} ({len(rows)} lines)')
                 rows = None
+                continue
+            if s.startswith('CHIP'):
+                chip = bytearray()
+                print(s, flush=True)
+                continue
+            if s == 'CEND' and chip is not None:
+                open(a.dump, 'wb').write(chip)
+                print(f'chip RAM: {a.dump} ({len(chip)} bytes)')
+                chip = None
+                continue
+            if chip is not None and s.startswith('C'):
+                chip += bytes.fromhex(s[1:])
                 continue
             if rows is not None and s.startswith('L'):
                 px = []
