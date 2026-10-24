@@ -1,0 +1,80 @@
+; Keyboard, mouse and joystick.
+;
+; Keyboard: the Amiga keyboard sends each raw key code (bit 7 = released)
+; serially to CIA-A, rotated left one bit and inverted, and waits for the
+; handshake (the CPU switches the CIA's serial port to output for ~85 us)
+; before it sends the next. After a reset it sends $FD then $FE.
+; Mouse in port 0 (JOY0DAT counters, left button /FIR0, right button POTGOR
+; bit 10), joystick in port 1 (JOY1DAT, fire /FIR1).
+
+#KBD_QUEUE = 64
+
+Global Dim KbdQueue.a(#KBD_QUEUE)
+Global KbdHead.i, KbdTail.i, KbdWait.i, KbdWaitLines.i
+Global MouseX.i, MouseY.i, MouseLeft.i, MouseRight.i
+Global JoyBits.i                 ; bit 0 up, 1 down, 2 left, 3 right, 4 fire
+
+; The platform reports a key: code is the raw Amiga key code, up = released.
+Procedure AmigaKey(code.i, up.i)
+  Protected n.i
+  n = (KbdTail + 1) & (#KBD_QUEUE - 1)
+  If n = KbdHead
+    ProcedureReturn
+  EndIf
+  KbdQueue(KbdTail) = (code & $7F) | (Bool(up) << 7)
+  KbdTail = n
+EndProcedure
+
+Procedure KbdReset()
+  KbdHead = 0
+  KbdTail = 0
+  KbdWait = 0
+  AmigaKey($7D, 1)
+  AmigaKey($7E, 1)
+EndProcedure
+
+; The CPU switched CIA-A's serial port to output: the handshake.
+Procedure KbdHandshake()
+  KbdWait = 0
+EndProcedure
+
+; Once a line: send the next key when the last one was acknowledged.
+Procedure KbdLine()
+  Protected c.i
+  If KbdWait
+    KbdWaitLines = KbdWaitLines + 1
+    If KbdWaitLines > 3000
+      KbdWait = 0
+    EndIf
+    ProcedureReturn
+  EndIf
+  If KbdHead = KbdTail
+    ProcedureReturn
+  EndIf
+  If CiaCra(0) & $40
+    ProcedureReturn
+  EndIf
+  c = KbdQueue(KbdHead)
+  KbdHead = (KbdHead + 1) & (#KBD_QUEUE - 1)
+  c = (~((c << 1) | (c >> 7))) & $FF
+  KbdWait = 1
+  KbdWaitLines = 0
+  CiaSerialIn(0, c)
+EndProcedure
+
+; The platform moves the mouse by dx, dy (Amiga mouse counts).
+Procedure AmigaMouse(dx.i, dy.i, left.i, right.i)
+  MouseX = (MouseX + dx) & $FF
+  MouseY = (MouseY + dy) & $FF
+  MouseLeft = left
+  MouseRight = right
+EndProcedure
+
+Procedure.i JoyDat()
+  Protected up.i, down.i, left.i, right.i
+  up = JoyBits & 1
+  down = (JoyBits >> 1) & 1
+  left = (JoyBits >> 2) & 1
+  right = (JoyBits >> 3) & 1
+  ProcedureReturn (right << 1) | (right ! down) | (left << 9) | ((left ! up) << 8)
+EndProcedure

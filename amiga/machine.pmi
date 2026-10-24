@@ -1,0 +1,577 @@
+; The Amiga 500: memory map, the custom-chip registers, interrupts, and the
+; scheduler that interleaves the 68000 with the chips. Include after the 68000
+; core and the chip modules:
+;
+;   chipset.pmi cia.pmi copper.pmi denise.pmi blitter.pmi paula.pmi input.pmi machine.pmi
+;
+; The platform provides, before AmigaReset():
+;   ChipHost / ChipMask   the chip RAM (guest words in host byte order), its size - 1
+;   AmigaSlowHost, AmigaSlowBytes   slow RAM at $C00000 (0 = none)
+;   AmigaRomHost, AmigaRomBytes     the Kickstart (256 or 512 KB, words in host order)
+; and the procedures AmigaLineDone(y) (a picture line is in LineBuf) and
+; AmigaSerial(byte) (a byte sent on the serial port).
+;
+; Memory map: chip RAM at $000000 (mirrored to $1FFFFF), the CIAs at $BFxxxx
+; (mirrored $A00000-$BFFFFF), slow RAM at $C00000, the custom chips at $DFF000
+; (and wherever $C00000-$DFFFFF is not RAM), the ROM at $F80000 (a 256 KB ROM is
+; mirrored at $FC0000), with the overlay putting the ROM at $000000 after reset.
+
+Global AmigaSlowHost.i, AmigaSlowBytes.i, AmigaRomHost.i, AmigaRomBytes.i
+Global AmigaOvl.i, AmigaEBase.i, AmigaERem.i, AmigaFrameCyc.i
+Global AmigaCpuCycles.i, AmigaLastBus.i
+
+Declare AmigaSerial(byte.i)
+
+Procedure.i AmigaNowCyc()
+  If CopActive
+    ProcedureReturn CopTime
+  EndIf
+  ProcedureReturn SliceStart + Budget - CLeft
+EndProcedure
+
+; ---------------------------------------------------------------- interrupts
+Procedure AmigaSetIpl()
+  Protected act.i, lv.i
+  lv = 0
+  If IntEna & #INT_INTEN
+    act = IntEna & IntReq & $3FFF
+    If act & $2000
+      lv = 6
+    ElseIf act & $1800
+      lv = 5
+    ElseIf act & $0780
+      lv = 4
+    ElseIf act & $0070
+      lv = 3
+    ElseIf act & $0008
+      lv = 2
+    ElseIf act & $0007
+      lv = 1
+    EndIf
+  EndIf
+  If lv <> IplLine
+    M68kSetIpl(lv)
+  EndIf
+EndProcedure
+
+; ---------------------------------------------------------------- CIA wiring
+Procedure.i CiaNowE()
+  ProcedureReturn (AmigaEBase + (AmigaNowCyc() + AmigaERem) / 10) & $7FFFFFFF
+EndProcedure
+
+Procedure.i CiaPortAIn(c.i)
+  Protected v.i
+  If c = 0
+    ; /FIR1 /FIR0 /RDY /TK0 /WPRO /CHNG LED OVL
+    v = $C3 | DriveStatus()
+    If MouseLeft
+      v = v & ~$40
+    EndIf
+    If JoyBits & 16
+      v = v & ~$80
+    EndIf
+    ProcedureReturn v
+  EndIf
+  ProcedureReturn $FF
+EndProcedure
+
+Procedure.i CiaPortBIn(c.i)
+  ProcedureReturn $FF
+EndProcedure
+
+Declare AmigaMapOverlay(on.i)
+
+Procedure CiaPortOut(c.i, port.i, v.i)
+  If c = 0 And port = 0
+    ; OVL in bit 0
+    If (v & 1) <> AmigaOvl
+      AmigaMapOverlay(v & 1)
+    EndIf
+  ElseIf c = 1 And port = 1
+    DriveControl(v)
+  EndIf
+EndProcedure
+
+Procedure CiaIrq(c.i)
+  If c = 0
+    IntReq = IntReq | #INT_PORTS
+  Else
+    IntReq = IntReq | #INT_EXTER
+  EndIf
+  AmigaSetIpl()
+EndProcedure
+
+Procedure CiaSerialOut(c.i, b.i)
+  If c = 0 And b < 0
+    KbdHandshake()
+  EndIf
+EndProcedure
+
+; ---------------------------------------------------------------- memory map
+Procedure AmigaMapOverlay(on.i)
+  AmigaOvl = on
+  If on
+    If AmigaRomBytes >= $80000
+      M68kMapRom(0, $80000, AmigaRomHost)
+    Else
+      M68kMapRom(0, $40000, AmigaRomHost)
+      M68kMapRom($40000, $40000, AmigaRomHost)
+    EndIf
+  Else
+    M68kMapRam(0, ChipMask + 1, ChipHost)
+    If ChipMask + 1 < $80000
+      M68kMapRam(ChipMask + 1, ChipMask + 1, ChipHost)
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure AmigaMapMemory()
+  Protected a.i
+  M68kMapHook(0, $1000000)
+  a = 0
+  While a < $200000
+    M68kMapRam(a, ChipMask + 1, ChipHost)
+    a = a + ChipMask + 1
+  Wend
+  If AmigaSlowBytes
+    M68kMapRam($C00000, AmigaSlowBytes, AmigaSlowHost)
+  EndIf
+  If AmigaRomBytes >= $80000
+    M68kMapRom($F80000, $80000, AmigaRomHost)
+  Else
+    M68kMapRom($F80000, $40000, AmigaRomHost)
+    M68kMapRom($FC0000, $40000, AmigaRomHost)
+  EndIf
+  AmigaMapOverlay(1)
+EndProcedure
+
+; ---------------------------------------------------------------- custom registers
+Procedure.i CustomRead(reg.i)
+  Protected v.i, h.i
+  reg = reg & $1FE
+  If reg = #R_DMACONR
+    v = DmaCon & $07FF
+    If BlitBusy()
+      v = v | #DMA_BBUSY
+    EndIf
+    If BltZero
+      v = v | #DMA_BZERO
+    EndIf
+  ElseIf reg = #R_VPOSR
+    v = (LongFrame << 15) | ((VPos >> 8) & 1)
+  ElseIf reg = #R_VHPOSR
+    h = AmigaHPos()
+    v = ((VPos & $FF) << 8) | (h & $FF)
+  ElseIf reg = #R_JOY0DAT
+    v = (MouseY << 8) | MouseX
+  ElseIf reg = #R_JOY1DAT
+    v = JoyDat()
+  ElseIf reg = #R_CLXDAT
+    v = ClxDat | $8000
+    ClxDat = 0
+  ElseIf reg = #R_ADKCONR
+    v = AdkCon
+  ElseIf reg = #R_POT0DAT Or reg = #R_POT1DAT
+    v = 0
+  ElseIf reg = #R_POTGOR
+    v = $FF00
+    If MouseRight
+      v = v & ~$0400
+    EndIf
+  ElseIf reg = #R_SERDATR
+    v = $3000 | $0800 | SerDatR
+  ElseIf reg = #R_DSKBYTR
+    v = $8000 | DskByte
+    If DskOn
+      v = v | $4000
+    EndIf
+    If DskWrite
+      v = v | $2000
+    EndIf
+    If DskWordEq
+      v = v | $1000
+    EndIf
+  ElseIf reg = #R_INTENAR
+    v = IntEna
+  ElseIf reg = #R_INTREQR
+    v = IntReq
+  ElseIf reg = #R_DSKDATR
+    v = 0
+  Else
+    v = $FFFF
+  EndIf
+  ProcedureReturn v & $FFFF
+EndProcedure
+
+; Set / clear register semantics: bit 15 says which.
+Procedure.i SetClr(old.i, v.i)
+  If v & $8000
+    ProcedureReturn old | (v & $7FFF)
+  EndIf
+  ProcedureReturn old & ~(v & $7FFF)
+EndProcedure
+
+; A custom register write, at colour clock h of the current line.
+Procedure CustomWriteAt(reg.i, v.i, h.i)
+  Protected i.i, old.i
+  reg = reg & $1FE
+  v = v & $FFFF
+  Cust(reg >> 1) = v
+  If reg >= #R_COLOR00
+    DispCatchUp(h)
+    Color((reg - #R_COLOR00) >> 1) = v & $FFF
+    ProcedureReturn
+  EndIf
+  If reg >= #R_SPR0POS
+    DispCatchUp(h)
+    i = (reg - #R_SPR0POS) >> 3
+    old = (reg - #R_SPR0POS) & 7
+    If old = 0
+      SprPos(i) = v
+    ElseIf old = 2
+      SprCtl(i) = v
+      SprArmed(i) = 0
+    ElseIf old = 4
+      SprDatA(i) = v
+      SprArmed(i) = 1
+    Else
+      SprDatB(i) = v
+    EndIf
+    ProcedureReturn
+  EndIf
+  If reg >= #R_SPR0PTH
+    i = (reg - #R_SPR0PTH) >> 2
+    SprPt(i) = ((Cust((#R_SPR0PTH >> 1) + i * 2) << 16) | Cust((#R_SPR0PTH >> 1) + i * 2 + 1)) & ChipMask & ~1
+    ProcedureReturn
+  EndIf
+  If reg >= #R_BPL1DAT
+    ProcedureReturn
+  EndIf
+  If reg >= #R_BPLCON0
+    DispCatchUp(h)
+    If reg = #R_BPLCON0
+      BplCon0 = v
+    ElseIf reg = #R_BPLCON1
+      BplCon1 = v
+    ElseIf reg = #R_BPLCON2
+      BplCon2 = v
+    ElseIf reg = #R_BPL1MOD
+      Bpl1Mod = v
+    ElseIf reg = #R_BPL2MOD
+      Bpl2Mod = v
+    EndIf
+    ProcedureReturn
+  EndIf
+  If reg >= #R_BPL1PTH
+    DispCatchUp(h)
+    i = (reg - #R_BPL1PTH) >> 2
+    BplPt(i) = ((Cust((#R_BPL1PTH >> 1) + i * 2) << 16) | Cust((#R_BPL1PTH >> 1) + i * 2 + 1)) & ChipMask & ~1
+    ProcedureReturn
+  EndIf
+  If reg >= #R_AUD0LCH
+    AudioWrite(reg, v)
+    ProcedureReturn
+  EndIf
+  If reg >= #R_COP1LCH
+    If reg = #R_COP1LCH Or reg = #R_COP1LCL
+      Cop1Lc = ((Cust(#R_COP1LCH >> 1) << 16) | Cust(#R_COP1LCL >> 1)) & ChipMask & ~1
+    ElseIf reg = #R_COP2LCH Or reg = #R_COP2LCL
+      Cop2Lc = ((Cust(#R_COP2LCH >> 1) << 16) | Cust(#R_COP2LCL >> 1)) & ChipMask & ~1
+    ElseIf reg = #R_COPJMP1
+      CopperJump(Cop1Lc)
+    ElseIf reg = #R_COPJMP2
+      CopperJump(Cop2Lc)
+    ElseIf reg = #R_DIWSTRT
+      DispCatchUp(h)
+      DiwStrt = v
+      DiwDecode()
+    ElseIf reg = #R_DIWSTOP
+      DispCatchUp(h)
+      DiwStop = v
+      DiwDecode()
+    ElseIf reg = #R_DDFSTRT
+      DdfStrt = v
+    ElseIf reg = #R_DDFSTOP
+      DdfStop = v
+    ElseIf reg = #R_DMACON
+      DispCatchUp(h)
+      old = DmaCon
+      DmaCon = SetClr(DmaCon, v) & $07FF
+      If (old ! DmaCon) & (#DMA_EN | $F)
+        AudioDmaChange(old, DmaCon)
+      EndIf
+      If (DmaCon & (#DMA_EN | #DMA_COP)) = (#DMA_EN | #DMA_COP) And (old & (#DMA_EN | #DMA_COP)) <> (#DMA_EN | #DMA_COP)
+        If CopNextCyc < AmigaNowCyc()
+          CopNextCyc = AmigaNowCyc()
+        EndIf
+      EndIf
+    ElseIf reg = #R_CLXCON
+      ClxCon = v
+    ElseIf reg = #R_INTENA
+      IntEna = SetClr(IntEna, v)
+      AmigaSetIpl()
+    ElseIf reg = #R_INTREQ
+      IntReq = SetClr(IntReq, v) & $7FFF
+      ; the CIAs hold their lines while their interrupts are pending
+      If CiaIcr(0) & $80
+        IntReq = IntReq | #INT_PORTS
+      EndIf
+      If CiaIcr(1) & $80
+        IntReq = IntReq | #INT_EXTER
+      EndIf
+      AmigaSetIpl()
+    ElseIf reg = #R_ADKCON
+      AdkCon = SetClr(AdkCon, v)
+    EndIf
+    ProcedureReturn
+  EndIf
+  ; $000-$07E
+  If reg >= #R_BLTCON0
+    If reg = #R_BLTCON0
+      BltCon0 = v
+    ElseIf reg = #R_BLTCON1
+      BltCon1 = v
+    ElseIf reg = #R_BLTCPTH Or reg = #R_BLTCPTL
+      BltCpt = ((Cust(#R_BLTCPTH >> 1) << 16) | Cust(#R_BLTCPTL >> 1)) & ChipMask & ~1
+    ElseIf reg = #R_BLTBPTH Or reg = #R_BLTBPTL
+      BltBpt = ((Cust(#R_BLTBPTH >> 1) << 16) | Cust(#R_BLTBPTL >> 1)) & ChipMask & ~1
+    ElseIf reg = #R_BLTAPTH Or reg = #R_BLTAPTL
+      BltApt = ((Cust(#R_BLTAPTH >> 1) << 16) | Cust(#R_BLTAPTL >> 1)) & ChipMask & ~1
+      If reg = #R_BLTAPTL
+        BltApt = (BltApt & ~$FFFF) | v
+      EndIf
+    ElseIf reg = #R_BLTDPTH Or reg = #R_BLTDPTL
+      BltDpt = ((Cust(#R_BLTDPTH >> 1) << 16) | Cust(#R_BLTDPTL >> 1)) & ChipMask & ~1
+    ElseIf reg = #R_BLTSIZE
+      BlitStart()
+    ElseIf reg = #R_BLTCDAT
+      BltCdat = v
+    ElseIf reg = #R_BLTBDAT
+      BltBdat = v
+    ElseIf reg = #R_BLTADAT
+      BltAdat = v
+    EndIf
+    ProcedureReturn
+  EndIf
+  If reg = #R_DSKPTH Or reg = #R_DSKPTL
+    DskPt = ((Cust(#R_DSKPTH >> 1) << 16) | Cust(#R_DSKPTL >> 1)) & ChipMask & ~1
+  ElseIf reg = #R_DSKLEN
+    DiskLenWrite(v)
+  ElseIf reg = #R_VPOSW
+    LongFrame = (v >> 15) & 1
+  ElseIf reg = #R_COPCON
+    CopCon = v
+  ElseIf reg = #R_SERDAT
+    AmigaSerial(v & $FF)
+    IntReq = IntReq | #INT_TBE
+    AmigaSetIpl()
+  ElseIf reg = #R_SERPER
+    SerPer = v
+  ElseIf reg = #R_POTGO
+    PotGo = v
+  ElseIf reg = #R_JOYTEST
+    MouseX = v & $FF
+    MouseY = (v >> 8) & $FF
+  EndIf
+EndProcedure
+
+Procedure CustomWrite(reg.i, v.i)
+  CustomWriteAt(reg, v, AmigaHPos())
+EndProcedure
+
+; ---------------------------------------------------------------- the CPU's hooks
+; $A00000-$BFFFFF CIAs, $C00000-$DFFFFF custom chips (where not RAM), else open bus.
+Procedure.i M68kHookRd16(a.i)
+  Protected v.i
+  a = a & $FFFFFF
+  If a >= $C00000 And a < $E00000
+    ProcedureReturn CustomRead(a & $1FE)
+  EndIf
+  If a >= $A00000 And a < $C00000
+    v = $FFFF
+    If (a & $2000) = 0
+      v = (v & $00FF) | (CiaRead(1, a >> 8) << 8)
+    EndIf
+    If (a & $1000) = 0
+      v = (v & $FF00) | CiaRead(0, a >> 8)
+    EndIf
+    ProcedureReturn v
+  EndIf
+  ProcedureReturn $FFFF
+EndProcedure
+
+Procedure.i M68kHookRd8(a.i)
+  a = a & $FFFFFF
+  If a >= $A00000 And a < $C00000
+    If a & 1
+      If (a & $1000) = 0
+        ProcedureReturn CiaRead(0, a >> 8)
+      EndIf
+    Else
+      If (a & $2000) = 0
+        ProcedureReturn CiaRead(1, a >> 8)
+      EndIf
+    EndIf
+    ProcedureReturn $FF
+  EndIf
+  If a & 1
+    ProcedureReturn M68kHookRd16(a & ~1) & $FF
+  EndIf
+  ProcedureReturn (M68kHookRd16(a) >> 8) & $FF
+EndProcedure
+
+Procedure M68kHookWr16(a.i, v.i)
+  a = a & $FFFFFF
+  If a >= $C00000 And a < $E00000
+    CustomWrite(a & $1FE, v)
+    ProcedureReturn
+  EndIf
+  If a >= $A00000 And a < $C00000
+    If (a & $2000) = 0
+      CiaWrite(1, a >> 8, v >> 8)
+    EndIf
+    If (a & $1000) = 0
+      CiaWrite(0, a >> 8, v & $FF)
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure M68kHookWr8(a.i, v.i)
+  a = a & $FFFFFF
+  If a >= $A00000 And a < $C00000
+    If a & 1
+      If (a & $1000) = 0
+        CiaWrite(0, a >> 8, v)
+      EndIf
+    Else
+      If (a & $2000) = 0
+        CiaWrite(1, a >> 8, v)
+      EndIf
+    EndIf
+    ProcedureReturn
+  EndIf
+  If a >= $C00000 And a < $E00000
+    ; a byte write to a custom register puts the byte on both halves of the bus
+    CustomWrite(a & $1FE, ((v & $FF) << 8) | (v & $FF))
+  EndIf
+EndProcedure
+
+; The RESET instruction: the chips and the CIAs go back to their reset state.
+Procedure M68kResetHook()
+  CiaReset()
+  DmaCon = 0
+  IntEna = 0
+  IntReq = 0
+  AmigaSetIpl()
+  AmigaMapOverlay(1)
+EndProcedure
+
+; ---------------------------------------------------------------- reset and the scheduler
+Procedure AmigaReset()
+  Protected k.i
+  For k = 0 To 255
+    Cust(k) = 0
+  Next
+  For k = 0 To 31
+    Color(k) = 0
+  Next
+  DmaCon = 0
+  IntEna = 0
+  IntReq = 0
+  AdkCon = 0
+  BplCon0 = 0
+  BplCon1 = 0
+  BplCon2 = 0
+  VPos = 0
+  LineCyc0 = 0
+  SliceStart = 0
+  Budget = 0
+  CLeft = 0
+  AmigaEBase = 0
+  AmigaERem = 0
+  LinesThisFrame = #AM_LINES_SHORT + 1
+  LongFrame = 1
+  CopState = #COP_STOP
+  BltActive = 0
+  For k = 0 To 7
+    SprArmed(k) = 0
+    SprState(k) = 3
+  Next
+  CiaReset()
+  AudioReset()
+  DriveReset()
+  KbdReset()
+  AmigaMapMemory()
+  IplLine = 0
+  M68kReset()
+EndProcedure
+
+; One line: the CPU runs, interleaved with the copper and the blitter.
+Procedure AmigaRunLine()
+  Protected lineEnd.i, t.i, used.i
+  DispBeginLine()
+  lineEnd = LineCyc0 + #AM_CPU_LINE
+  While SliceStart < lineEnd
+    t = lineEnd
+    If CopState <> #COP_STOP And CopNextCyc < t
+      t = CopNextCyc
+    EndIf
+    If BltActive And BltEndCyc < t
+      t = BltEndCyc
+    EndIf
+    If t > SliceStart
+      used = M68kRun(t - SliceStart)
+      SliceStart = SliceStart + used
+      AmigaCpuCycles = AmigaCpuCycles + used
+      Budget = 0
+      CLeft = 0
+    EndIf
+    If CopState <> #COP_STOP And CopNextCyc <= SliceStart
+      CopperRun(SliceStart)
+    EndIf
+    If BltActive And BltEndCyc <= SliceStart
+      BlitFinish()
+    EndIf
+  Wend
+  DispEndLine()
+  AudioLine()
+  DiskLine()
+  KbdLine()
+  CiaTodTick(1)
+  LineCyc0 = lineEnd
+  VPos = VPos + 1
+  If VPos >= LinesThisFrame
+    ; a new frame: the times move back so they stay small
+    AmigaEBase = (AmigaEBase + (LineCyc0 + AmigaERem) / 10) & $7FFFFFFF
+    AmigaERem = (LineCyc0 + AmigaERem) % 10
+    SliceStart = SliceStart - LineCyc0
+    If CopState <> #COP_STOP
+      CopNextCyc = CopNextCyc - LineCyc0
+    EndIf
+    If BltActive
+      BltEndCyc = BltEndCyc - LineCyc0
+    EndIf
+    LineCyc0 = 0
+    VPos = 0
+    FrameCount = FrameCount + 1
+    If BplCon0 & 4
+      LongFrame = LongFrame ! 1
+    Else
+      LongFrame = 1
+    EndIf
+    LinesThisFrame = #AM_LINES_SHORT + LongFrame
+    IntReq = IntReq | #INT_VERTB
+    AmigaSetIpl()
+    CiaTodTick(0)
+    CopperVBlank()
+  EndIf
+EndProcedure
+
+; Run until the end of the current frame.
+Procedure AmigaRunFrame()
+  Protected f.i
+  f = FrameCount
+  While FrameCount = f
+    AmigaRunLine()
+  Wend
+EndProcedure

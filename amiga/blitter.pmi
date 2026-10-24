@@ -1,0 +1,312 @@
+; The blitter (Agnus). A blit is carried out whole when BLTSIZE is written;
+; the blitter then reads busy (DMACONR BBUSY) until the time a real one would
+; take has passed, and the BLIT interrupt comes at that time. Area mode with
+; the A/B shifts, first/last word masks, descending mode, inclusive and
+; exclusive fill; line mode (octants, SING, texture), stepped as UAE does.
+
+Global BltCon0.i, BltCon1.i, BltAfwm.i, BltAlwm.i
+Global BltApt.i, BltBpt.i, BltCpt.i, BltDpt.i
+Global BltAmod.i, BltBmod.i, BltCmod.i, BltDmod.i
+Global BltAdat.i, BltBdat.i, BltCdat.i, BltDdat.i
+Global BltEndCyc.i, BltActive.i, BltZero.i
+
+; d = the minterm lf of a, b, c (16-bit values)
+Procedure.i BlitMinterm(lf.i, a.i, b.i, c.i)
+  Protected d.i, na.i, nb.i, nc.i
+  na = ~a & $FFFF
+  nb = ~b & $FFFF
+  nc = ~c & $FFFF
+  If lf & $01
+    d = d | (na & nb & nc)
+  EndIf
+  If lf & $02
+    d = d | (na & nb & c)
+  EndIf
+  If lf & $04
+    d = d | (na & b & nc)
+  EndIf
+  If lf & $08
+    d = d | (na & b & c)
+  EndIf
+  If lf & $10
+    d = d | (a & nb & nc)
+  EndIf
+  If lf & $20
+    d = d | (a & nb & c)
+  EndIf
+  If lf & $40
+    d = d | (a & b & nc)
+  EndIf
+  If lf & $80
+    d = d | (a & b & c)
+  EndIf
+  ProcedureReturn d & $FFFF
+EndProcedure
+
+Procedure.i BlitBusy()
+  If BltActive
+    If AmigaNowCyc() >= BltEndCyc
+      BlitFinish()
+    EndIf
+  EndIf
+  ProcedureReturn BltActive
+EndProcedure
+
+; The blit's time is up: the interrupt.
+Procedure BlitFinish()
+  If BltActive
+    BltActive = 0
+    IntReq = IntReq | #INT_BLIT
+    AmigaSetIpl()
+  EndIf
+EndProcedure
+
+Procedure BlitArea(w.i, h.i)
+  Protected x.i, y.i, a.i, b.i, c.i, d.i, ao.i, bo.i, an.i, bn.i, ash.i, bsh.i
+  Protected desc.i, stp.i, usea.i, useb.i, usec.i, used.i, lf.i, fill.i, fc.i, k.i, t.i, outw.i
+  ash = (BltCon0 >> 12) & 15
+  bsh = (BltCon1 >> 12) & 15
+  usea = BltCon0 & $800
+  useb = BltCon0 & $400
+  usec = BltCon0 & $200
+  used = BltCon0 & $100
+  lf = BltCon0 & $FF
+  desc = BltCon1 & 2
+  fill = BltCon1 & $18
+  stp = 2
+  If desc
+    stp = -2
+  EndIf
+  BltZero = 1
+  ao = 0
+  bo = 0
+  For y = 0 To h - 1
+    fc = Bool(BltCon1 & 4)
+    For x = 0 To w - 1
+      If usea
+        BltAdat = ChipRd(BltApt)
+        BltApt = (BltApt + stp) & ChipMask
+      EndIf
+      an = BltAdat
+      If x = 0
+        an = an & BltAfwm
+      EndIf
+      If x = w - 1
+        an = an & BltAlwm
+      EndIf
+      If desc
+        a = (((an << 16) | ao) >> (16 - ash)) & $FFFF
+      Else
+        a = (((ao << 16) | an) >> ash) & $FFFF
+      EndIf
+      ao = an
+      If useb
+        BltBdat = ChipRd(BltBpt)
+        BltBpt = (BltBpt + stp) & ChipMask
+      EndIf
+      bn = BltBdat
+      If desc
+        b = (((bn << 16) | bo) >> (16 - bsh)) & $FFFF
+      Else
+        b = (((bo << 16) | bn) >> bsh) & $FFFF
+      EndIf
+      bo = bn
+      If usec
+        BltCdat = ChipRd(BltCpt)
+        BltCpt = (BltCpt + stp) & ChipMask
+      EndIf
+      c = BltCdat
+      d = BlitMinterm(lf, a, b, c)
+      If fill
+        outw = 0
+        For k = 0 To 15
+          t = (d >> k) & 1
+          If BltCon1 & $10
+            fc = fc ! t
+            outw = outw | (fc << k)
+          Else
+            outw = outw | ((fc | t) << k)
+            fc = fc ! t
+          EndIf
+        Next
+        d = outw
+      EndIf
+      If d
+        BltZero = 0
+      EndIf
+      BltDdat = d
+      If used
+        ChipWr(BltDpt, d)
+        BltDpt = (BltDpt + stp) & ChipMask
+      EndIf
+    Next
+    If desc
+      If usea
+        BltApt = (BltApt - BltAmod) & ChipMask
+      EndIf
+      If useb
+        BltBpt = (BltBpt - BltBmod) & ChipMask
+      EndIf
+      If usec
+        BltCpt = (BltCpt - BltCmod) & ChipMask
+      EndIf
+      If used
+        BltDpt = (BltDpt - BltDmod) & ChipMask
+      EndIf
+    Else
+      If usea
+        BltApt = (BltApt + BltAmod) & ChipMask
+      EndIf
+      If useb
+        BltBpt = (BltBpt + BltBmod) & ChipMask
+      EndIf
+      If usec
+        BltCpt = (BltCpt + BltCmod) & ChipMask
+      EndIf
+      If used
+        BltDpt = (BltDpt + BltDmod) & ChipMask
+      EndIf
+    EndIf
+  Next
+EndProcedure
+
+Global BlnShift.i, BlnOneDot.i
+
+Procedure BlitLineX(dir.i)
+  If dir > 0
+    BlnShift = BlnShift + 1
+    If BlnShift = 16
+      BlnShift = 0
+      BltCpt = (BltCpt + 2) & ChipMask
+    EndIf
+  Else
+    BlnShift = BlnShift - 1
+    If BlnShift < 0
+      BlnShift = 15
+      BltCpt = (BltCpt - 2) & ChipMask
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure BlitLineY(dir.i)
+  If dir > 0
+    BltCpt = (BltCpt + BltCmod) & ChipMask
+  Else
+    BltCpt = (BltCpt - BltCmod) & ChipMask
+  EndIf
+  BlnOneDot = 0
+EndProcedure
+
+; Line mode: h pixels.
+Procedure BlitLine(h.i)
+  Protected i.i, a.i, b.i, c.i, d.i, sign.i, sing.i, texture.i, lf.i, aptr.i, draw.i, bsh.i
+  lf = BltCon0 & $FF
+  BlnShift = (BltCon0 >> 12) & 15
+  bsh = (BltCon1 >> 12) & 15
+  texture = ((BltBdat >> bsh) | (BltBdat << (16 - bsh))) & $FFFF
+  sign = Bool(BltCon1 & $40)
+  sing = Bool(BltCon1 & 2)
+  BlnOneDot = 0
+  aptr = Sx16(BltApt)
+  BltZero = 1
+  For i = 0 To h - 1
+    a = ((BltAdat & BltAfwm) >> BlnShift) & $FFFF
+    If sing And BlnOneDot
+      a = 0
+    EndIf
+    If texture & 1
+      b = $FFFF
+    Else
+      b = 0
+    EndIf
+    BltCdat = ChipRd(BltCpt)
+    c = BltCdat
+    d = BlitMinterm(lf, a, b, c)
+    draw = Bool(sing = 0 Or BlnOneDot = 0)
+    BlnOneDot = BlnOneDot + 1
+    If d
+      BltZero = 0
+    EndIf
+    If draw
+      ChipWr(BltDpt, d)
+    EndIf
+    BltDpt = BltCpt
+    ; stp
+    If BltCon0 & $800
+      If sign
+        aptr = aptr + Sx16(BltBmod)
+      Else
+        aptr = aptr + Sx16(BltAmod)
+      EndIf
+    EndIf
+    If sign = 0
+      If BltCon1 & $10
+        If BltCon1 & 8
+          BlitLineY(-1)
+        Else
+          BlitLineY(1)
+        EndIf
+      Else
+        If BltCon1 & 8
+          BlitLineX(-1)
+        Else
+          BlitLineX(1)
+        EndIf
+      EndIf
+    EndIf
+    If BltCon1 & $10
+      If BltCon1 & 4
+        BlitLineX(-1)
+      Else
+        BlitLineX(1)
+      EndIf
+    Else
+      If BltCon1 & 4
+        BlitLineY(-1)
+      Else
+        BlitLineY(1)
+      EndIf
+    EndIf
+    sign = Bool(Sx16(aptr) < 0)
+    texture = ((texture << 1) | (texture >> 15)) & $FFFF
+  Next
+  BltApt = aptr & $FFFF
+EndProcedure
+
+; BLTSIZE was written: the blit happens now; it reads busy for its duration.
+Procedure BlitStart()
+  Protected w.i, h.i, cck.i, per.i
+  w = Cust(#R_BLTSIZE >> 1) & 63
+  h = (Cust(#R_BLTSIZE >> 1) >> 6) & 1023
+  If w = 0
+    w = 64
+  EndIf
+  If h = 0
+    h = 1024
+  EndIf
+  BltCmod = Sx16(Cust(#R_BLTCMOD >> 1))
+  BltBmod = Sx16(Cust(#R_BLTBMOD >> 1))
+  BltAmod = Sx16(Cust(#R_BLTAMOD >> 1))
+  BltDmod = Sx16(Cust(#R_BLTDMOD >> 1))
+  BltAfwm = Cust(#R_BLTAFWM >> 1)
+  BltAlwm = Cust(#R_BLTALWM >> 1)
+  If BltCon1 & 1
+    BlitLine(h)
+    cck = h * 4
+  Else
+    BlitArea(w, h)
+    per = 2
+    If BltCon0 & $400
+      per = per + 1
+    EndIf
+    If BltCon0 & $200
+      per = per + 1
+    EndIf
+    If (BltCon0 & $F00) = $100 Or (BltCon0 & $F00) = $900
+      per = 2
+    EndIf
+    cck = w * h * per + 2
+  EndIf
+  BltActive = 1
+  BltEndCyc = AmigaNowCyc() + cck * 2
+EndProcedure

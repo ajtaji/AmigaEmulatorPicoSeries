@@ -1,0 +1,136 @@
+; The copper (Agnus). Runs by time: CopNextCyc is the CPU cycle (from the
+; start of the frame) of its next action; the scheduler lets the CPU run up to
+; that time, then calls CopperRun. A MOVE takes 4 colour clocks (8 CPU
+; cycles); a WAIT ends 2 colour clocks after the beam reaches the position.
+
+#COP_RUN = 0
+#COP_WAIT = 1
+#COP_STOP = 2
+
+Global CopState.i, CopNextCyc.i, CopWait1.i, CopWait2.i, CopSkip.i
+Global CopActive.i, CopTime.i      ; while the copper writes a register, the time is its own
+
+Declare CustomWriteAt(reg.i, v.i, hpos.i)
+
+Procedure CopperJump(lc.i)
+  CopPc = lc & ChipMask & ~1
+  CopState = #COP_RUN
+  CopNextCyc = AmigaNowCyc() + 4
+EndProcedure
+
+; Start of a frame: the copper restarts from COP1LC.
+Procedure CopperVBlank()
+  CopPc = Cop1Lc & ChipMask & ~1
+  CopState = #COP_RUN
+  CopNextCyc = LineCyc0 + 2
+  CopSkip = 0
+EndProcedure
+
+; Is the beam at (line v, colour clock h) at or past the WAIT / SKIP position?
+Procedure.i CopperCond(v.i, h.i)
+  Protected beam.i, target.i, mask.i
+  beam = ((v & $FF) << 8) | (h & $FE)
+  target = ((CopWait1 >> 8) << 8) | (CopWait1 & $FE)
+  mask = ((((CopWait2 >> 8) & $7F) | $80) << 8) | (CopWait2 & $FE)
+  ProcedureReturn Bool((beam & mask) >= (target & mask))
+EndProcedure
+
+; The earliest colour clock at or after h on this line where the WAIT is
+; satisfied, or -1.
+Procedure.i CopperWaitPos(h.i)
+  Protected vb.i, vt.i, vm.i
+  vm = ((CopWait2 >> 8) & $7F) | $80
+  vb = (VPos & $FF) & vm
+  vt = (CopWait1 >> 8) & vm
+  If vb < vt
+    ProcedureReturn -1
+  EndIf
+  If vb > vt
+    ProcedureReturn h
+  EndIf
+  h = h & ~1
+  While h < #AM_CCK_LINE
+    If CopperCond(VPos, h)
+      ProcedureReturn h
+    EndIf
+    h = h + 2
+  Wend
+  ProcedureReturn -1
+EndProcedure
+
+; Run every copper action due at or before CPU cycle t.
+Procedure CopperRun(t.i)
+  Protected ir1.i, ir2.i, h.i, reg.i, at.i, bt.i
+  While CopState <> #COP_STOP And CopNextCyc <= t
+    If (DmaCon & (#DMA_EN | #DMA_COP)) <> (#DMA_EN | #DMA_COP)
+      CopNextCyc = LineCyc0 + #AM_CPU_LINE
+      ProcedureReturn
+    EndIf
+    at = CopNextCyc
+    If CopState = #COP_WAIT
+      h = (at - LineCyc0) >> 1
+      h = CopperWaitPos(h)
+      If h < 0
+        CopNextCyc = LineCyc0 + #AM_CPU_LINE
+        ProcedureReturn
+      EndIf
+      bt = LineCyc0 + h * 2 + 4
+      If (CopWait2 & $8000) = 0 And BlitBusy()
+        ; WAIT also for the blitter: retry on the next colour clocks
+        CopNextCyc = at + 8
+        If bt > CopNextCyc
+          CopNextCyc = bt
+        EndIf
+      Else
+        If bt < at
+          bt = at
+        EndIf
+        CopState = #COP_RUN
+        CopNextCyc = bt
+      EndIf
+    Else
+      ir1 = ChipRd(CopPc)
+      ir2 = ChipRd(CopPc + 2)
+      CopPc = (CopPc + 4) & ChipMask
+      h = (at - LineCyc0) >> 1
+      If (ir1 & 1) = 0
+        ; MOVE
+        reg = ir1 & $1FE
+        If reg < $40 Or (reg < $80 And (CopCon & 2) = 0)
+          CopState = #COP_STOP
+          ProcedureReturn
+        EndIf
+        If CopSkip
+          CopSkip = 0
+        Else
+          CopActive = 1
+          CopTime = at
+          CustomWriteAt(reg, ir2, h)
+          CopActive = 0
+        EndIf
+        If CopState = #COP_RUN
+          If CopNextCyc = at
+            CopNextCyc = at + 8
+          EndIf
+        EndIf
+      Else
+        CopWait1 = ir1
+        CopWait2 = ir2
+        If ir2 & 1
+          ; SKIP: the next MOVE is skipped when the beam is past the position
+          If CopperCond(VPos, h + 2)
+            CopSkip = 1
+          EndIf
+          CopNextCyc = at + 8
+        Else
+          If ir1 = $FFFF And ir2 = $FFFE
+            CopState = #COP_STOP
+            ProcedureReturn
+          EndIf
+          CopState = #COP_WAIT
+          CopNextCyc = at + 4
+        EndIf
+      EndIf
+    EndIf
+  Wend
+EndProcedure

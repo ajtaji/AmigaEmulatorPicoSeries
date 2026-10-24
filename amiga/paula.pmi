@@ -1,0 +1,470 @@
+; Paula: the four audio channels (DMA and CPU driven) and disk DMA, with the
+; floppy drives behind it. Interrupt bits live in IntReq (chipset.pmi).
+;
+; Audio: each channel steps through its sample at its period (colour clocks per
+; byte); the mixer takes #AUD_RATE samples a second, left = channels 0 + 3,
+; right = 1 + 2, into AudRing (16-bit stereo pairs) for the platform to play.
+;
+; Disk: the selected drive's track is a ring of MFM words built from the .ADF
+; (AmigaDOS format, 11 sectors). The disk turns at 300 RPM: two words pass the
+; head every line. Disk DMA reads (or writes) those words; with WORDSYNC it
+; starts after the sync word. Every turn, the index pulse goes to CIA-B FLAG.
+
+#AUD_RATE = 44100
+#AUD_RING = 16384                 ; stereo pairs, a power of two
+#TRACK_WORDS = 6400               ; the MFM words of one track (a turn: 6250 lines * 2... see DiskLine)
+#ADF_BYTES = 901120
+
+Global Dim AudPt.i(4)
+Global Dim AudLen.i(4)
+Global Dim AudCnt.i(4)
+Global Dim AudDat.i(4)
+Global Dim AudHalf.i(4)           ; 0: the high byte is next
+Global Dim AudOut.i(4)            ; the sample playing (signed)
+Global Dim AudOn.i(4)
+Global Dim AudCpu.i(4)            ; CPU-driven (non-DMA) data waiting
+Global Dim AudRing.w(#AUD_RING * 2)
+Global AudWr.i, AudRd.i, AudAcc.i, AudLp.i
+
+Global DskPt.i, DskLen.i, DskLenPrev.i, DskLeft.i, DskOn.i, DskWrite.i, DskSyncWait.i, DskByte.i, DskWordEq.i
+
+; Drives (DF0 and DF1)
+Global Dim DrvAdf.i(2)            ; host address of the .ADF image, 0 = no disk
+Global Dim DrvProt.i(2)
+Global Dim DrvTrack.i(2)          ; head position 0..79
+Global Dim DrvMotor.i(2)
+Global Dim DrvChange.i(2)         ; /CHNG: 1 = a disk is in and has been seen
+Global Dim DrvDirty.i(2)
+Global Dim TrackBuf.u(2 * #TRACK_WORDS)
+Global Dim TrackFor.i(2)          ; cylinder * 2 + side the buffer holds, -1 none
+Global Dim TrackPos.i(2)
+Global DrvSel.i, DrvSide.i, DrvDir.i, DrvStepPrev.i, DrvMtrPrev.i, DrvSelPrev.i
+Global Dim MfmLongs.l(300)
+
+; ---------------------------------------------------------------- audio
+Procedure AudioReset()
+  Protected c.i
+  For c = 0 To 3
+    AudOn(c) = 0
+    AudOut(c) = 0
+    AudCnt(c) = 0
+    AudHalf(c) = 0
+    AudCpu(c) = 0
+  Next
+  AudWr = 0
+  AudRd = 0
+  AudAcc = 0
+EndProcedure
+
+; A channel's DMA was switched on: load the pointer and length, interrupt.
+Procedure AudioStart(c.i)
+  Protected base.i
+  base = (#R_AUD0LCH >> 1) + c * 8
+  AudPt(c) = ((Cust(base) << 16) | Cust(base + 1)) & ChipMask & ~1
+  AudLen(c) = Cust(base + 2)
+  If AudLen(c) = 0
+    AudLen(c) = $10000
+  EndIf
+  AudDat(c) = ChipRd(AudPt(c))
+  AudPt(c) = (AudPt(c) + 2) & ChipMask
+  AudLen(c) = AudLen(c) - 1
+  AudHalf(c) = 0
+  AudCnt(c) = 0
+  AudOn(c) = 1
+  IntReq = IntReq | (#INT_AUD0 << c)
+EndProcedure
+
+Procedure AudioDmaChange(old.i, new.i)
+  Protected c.i, en.i
+  For c = 0 To 3
+    en = Bool((new & #DMA_EN) And (new & (1 << c)))
+    If en And AudOn(c) = 0
+      AudioStart(c)
+    ElseIf en = 0 And AudOn(c)
+      AudOn(c) = 0
+    EndIf
+  Next
+  AmigaSetIpl()
+EndProcedure
+
+Procedure AudioWrite(reg.i, v.i)
+  Protected c.i, r.i
+  c = (reg - #R_AUD0LCH) >> 4
+  r = (reg - #R_AUD0LCH) & 15
+  If r = $A
+    ; AUDxDAT by the CPU: play these two bytes, interrupt when they are taken
+    If AudOn(c) = 0
+      AudDat(c) = v
+      AudHalf(c) = 0
+      AudCpu(c) = 1
+    EndIf
+  EndIf
+EndProcedure
+
+; The next byte of channel c.
+Procedure AudioNextByte(c.i)
+  Protected base.i
+  If AudHalf(c) = 0
+    AudOut(c) = ((AudDat(c) >> 8) ! $80) - $80
+    AudHalf(c) = 1
+    ProcedureReturn
+  EndIf
+  AudOut(c) = ((AudDat(c) & $FF) ! $80) - $80
+  AudHalf(c) = 0
+  If AudOn(c)
+    If AudLen(c) = 0
+      base = (#R_AUD0LCH >> 1) + c * 8
+      AudPt(c) = ((Cust(base) << 16) | Cust(base + 1)) & ChipMask & ~1
+      AudLen(c) = Cust(base + 2)
+      If AudLen(c) = 0
+        AudLen(c) = $10000
+      EndIf
+      IntReq = IntReq | (#INT_AUD0 << c)
+      AmigaSetIpl()
+    EndIf
+    AudDat(c) = ChipRd(AudPt(c))
+    AudPt(c) = (AudPt(c) + 2) & ChipMask
+    AudLen(c) = AudLen(c) - 1
+  ElseIf AudCpu(c)
+    AudCpu(c) = 0
+    IntReq = IntReq | (#INT_AUD0 << c)
+    AmigaSetIpl()
+  EndIf
+EndProcedure
+
+; Advance every channel by n colour clocks.
+Procedure AudioStep(n.i)
+  Protected c.i, per.i
+  For c = 0 To 3
+    If AudOn(c) Or AudCpu(c)
+      per = Cust((#R_AUD0LCH >> 1) + c * 8 + 3)
+      If per < 124
+        per = 124
+      EndIf
+      AudCnt(c) = AudCnt(c) - n
+      While AudCnt(c) <= 0
+        AudCnt(c) = AudCnt(c) + per
+        AudioNextByte(c)
+      Wend
+    EndIf
+  Next
+EndProcedure
+
+Procedure.i AudioVol(c.i)
+  Protected v.i
+  v = Cust((#R_AUD0LCH >> 1) + c * 8 + 4) & 127
+  If v > 64
+    v = 64
+  EndIf
+  ProcedureReturn v
+EndProcedure
+
+; One line of audio: the samples that fall in it.
+Procedure AudioLine()
+  Protected n.i, k.i, l.i, r.i, chunk.i
+  AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
+  n = 0
+  While AudAcc >= 3546895
+    AudAcc = AudAcc - 3546895
+    n = n + 1
+  Wend
+  If n = 0
+    AudioStep(#AM_CCK_LINE)
+    ProcedureReturn
+  EndIf
+  chunk = #AM_CCK_LINE / n
+  For k = 0 To n - 1
+    If k = n - 1
+      AudioStep(#AM_CCK_LINE - chunk * (n - 1))
+    Else
+      AudioStep(chunk)
+    EndIf
+    l = AudOut(0) * AudioVol(0) + AudOut(3) * AudioVol(3)
+    r = AudOut(1) * AudioVol(1) + AudOut(2) * AudioVol(2)
+    AudRing((AudWr & (#AUD_RING - 1)) * 2) = l * 2
+    AudRing((AudWr & (#AUD_RING - 1)) * 2 + 1) = r * 2
+    AudWr = AudWr + 1
+  Next
+EndProcedure
+
+; ---------------------------------------------------------------- MFM tracks
+Procedure.i MfmOdd(v.i)
+  ProcedureReturn (v >> 1) & $55555555
+EndProcedure
+
+Procedure.i MfmEven(v.i)
+  ProcedureReturn v & $55555555
+EndProcedure
+
+; Put data long v (data bits at the even positions) into the track at word w,
+; with clock bits; prev is the previous data bit. Returns the new last bit.
+Procedure.i MfmPut(d.i, w.i, v.i, prev.i)
+  Protected c.i, m.i
+  m = v & $55555555
+  c = (~((m << 1) | (m >> 1))) & $2AAAAAAA
+  If prev = 0 And (m & $40000000) = 0
+    c = c | ($40000000 << 1)
+  EndIf
+  m = m | c
+  TrackBuf(d * #TRACK_WORDS + w) = (m >> 16) & $FFFF
+  TrackBuf(d * #TRACK_WORDS + w + 1) = m & $FFFF
+  ProcedureReturn m & 1
+EndProcedure
+
+; Build the MFM track of drive d for its cylinder and side from the .ADF.
+Procedure TrackBuild(d.i)
+  Protected trk.i, s.i, w.i, k.i, info.i, chk.i, src.i, prev.i, v.i, words.i
+  trk = DrvTrack(d) * 2 + DrvSide
+  TrackFor(d) = trk
+  For w = 0 To #TRACK_WORDS - 1
+    TrackBuf(d * #TRACK_WORDS + w) = $AAAA
+  Next
+  If DrvAdf(d) = 0
+    ProcedureReturn
+  EndIf
+  w = 0
+  For s = 0 To 10
+    TrackBuf(d * #TRACK_WORDS + w) = $AAAA
+    TrackBuf(d * #TRACK_WORDS + w + 1) = $AAAA
+    TrackBuf(d * #TRACK_WORDS + w + 2) = $4489
+    TrackBuf(d * #TRACK_WORDS + w + 3) = $4489
+    w = w + 4
+    prev = 1
+    info = ($FF << 24) | (trk << 16) | (s << 8) | (11 - s)
+    prev = MfmPut(d, w, MfmOdd(info), prev)
+    prev = MfmPut(d, w + 2, MfmEven(info), prev)
+    w = w + 4
+    For k = 0 To 7
+      prev = MfmPut(d, w, 0, prev)
+      w = w + 2
+    Next
+    chk = (MfmOdd(info) ! MfmEven(info)) & $55555555
+    prev = MfmPut(d, w, MfmOdd(chk), prev)
+    prev = MfmPut(d, w + 2, MfmEven(chk), prev)
+    w = w + 4
+    src = DrvAdf(d) + (trk * 11 + s) * 512
+    chk = 0
+    For k = 0 To 127
+      v = (PeekA(src + k * 4) << 24) | (PeekA(src + k * 4 + 1) << 16) | (PeekA(src + k * 4 + 2) << 8) | PeekA(src + k * 4 + 3)
+      MfmLongs(k) = v
+      chk = chk ! MfmOdd(v) ! MfmEven(v)
+    Next
+    chk = chk & $55555555
+    prev = MfmPut(d, w, MfmOdd(chk), prev)
+    prev = MfmPut(d, w + 2, MfmEven(chk), prev)
+    w = w + 4
+    For k = 0 To 127
+      prev = MfmPut(d, w, MfmOdd(MfmLongs(k)), prev)
+      w = w + 2
+    Next
+    For k = 0 To 127
+      prev = MfmPut(d, w, MfmEven(MfmLongs(k)), prev)
+      w = w + 2
+    Next
+  Next
+EndProcedure
+
+; Decode a written track back into the .ADF (sectors found by their sync).
+Procedure TrackStore(d.i)
+  Protected w.i, k.i, hi.i, lo.i, info.i, sec.i, trk.i, n.i, b.i, odd.i, even.i, dst.i, i.i
+  If DrvAdf(d) = 0 Or DrvDirty(d) = 0 Or TrackFor(d) < 0
+    ProcedureReturn
+  EndIf
+  DrvDirty(d) = 0
+  w = 0
+  n = 0
+  While w < #TRACK_WORDS - 600 And n < 20
+    If TrackBuf(d * #TRACK_WORDS + w) = $4489 And TrackBuf(d * #TRACK_WORDS + w + 1) <> $4489
+      i = d * #TRACK_WORDS + w + 1
+      odd = (TrackBuf(i) << 16) | TrackBuf(i + 1)
+      even = (TrackBuf(i + 2) << 16) | TrackBuf(i + 3)
+      info = ((odd & $55555555) << 1) | (even & $55555555)
+      trk = (info >> 16) & $FF
+      sec = (info >> 8) & $FF
+      If trk = TrackFor(d) And sec < 11
+        dst = DrvAdf(d) + (trk * 11 + sec) * 512
+        i = d * #TRACK_WORDS + w + 1 + 4 + 16 + 4 + 4
+        For k = 0 To 127
+          odd = (TrackBuf(i + k * 2) << 16) | TrackBuf(i + k * 2 + 1)
+          even = (TrackBuf(i + 256 + k * 2) << 16) | TrackBuf(i + 256 + k * 2 + 1)
+          b = ((odd & $55555555) << 1) | (even & $55555555)
+          PokeA(dst + k * 4, (b >> 24) & $FF)
+          PokeA(dst + k * 4 + 1, (b >> 16) & $FF)
+          PokeA(dst + k * 4 + 2, (b >> 8) & $FF)
+          PokeA(dst + k * 4 + 3, b & $FF)
+        Next
+        n = n + 1
+        w = w + 540
+      EndIf
+    EndIf
+    w = w + 1
+  Wend
+EndProcedure
+
+Procedure TrackEnsure(d.i)
+  If TrackFor(d) <> DrvTrack(d) * 2 + DrvSide
+    TrackStore(d)
+    TrackBuild(d)
+  EndIf
+EndProcedure
+
+; ---------------------------------------------------------------- drives
+Procedure DriveReset()
+  Protected d.i
+  For d = 0 To 1
+    DrvTrack(d) = 0
+    DrvMotor(d) = 0
+    TrackFor(d) = -1
+    TrackPos(d) = 0
+    DrvChange(d) = 0
+  Next
+  DrvSel = -1
+  DrvSide = 0
+  DrvStepPrev = 1
+  DskOn = 0
+  DskLenPrev = 0
+EndProcedure
+
+; CIA-B port B changed: /MTR /SEL3../SEL0 /SIDE DIR /STEP.
+Procedure DriveControl(v.i)
+  Protected d.i, sel.i
+  DrvSide = Bool((v & 4) = 0)
+  DrvDir = Bool((v & 2) = 0)
+  For d = 0 To 1
+    sel = Bool((v & (8 << d)) = 0)
+    If sel And (DrvSelPrev & (8 << d))
+      ; the motor line is latched as the drive is selected
+      DrvMotor(d) = Bool((v & $80) = 0)
+    EndIf
+  Next
+  DrvSel = -1
+  For d = 0 To 1
+    If (v & (8 << d)) = 0
+      DrvSel = d
+    EndIf
+  Next
+  If DrvSel >= 0
+    If (v & 1) = 0 And DrvStepPrev
+      ; a step pulse
+      d = DrvSel
+      If DrvDir
+        If DrvTrack(d) < 79
+          DrvTrack(d) = DrvTrack(d) + 1
+        EndIf
+      Else
+        If DrvTrack(d) > 0
+          DrvTrack(d) = DrvTrack(d) - 1
+        EndIf
+      EndIf
+      If DrvAdf(d)
+        DrvChange(d) = 1
+      EndIf
+    EndIf
+  EndIf
+  DrvStepPrev = v & 1
+  DrvSelPrev = v
+EndProcedure
+
+; CIA-A port A inputs from the selected drive: /RDY /TK0 /WPRO /CHNG (active low).
+Procedure.i DriveStatus()
+  Protected v.i, d.i
+  v = $3C
+  d = DrvSel
+  If d >= 0
+    If DrvMotor(d)
+      v = v & ~$20
+    EndIf
+    If DrvTrack(d) = 0
+      v = v & ~$10
+    EndIf
+    If DrvProt(d) Or DrvAdf(d) = 0
+      v = v & ~$08
+    EndIf
+    If DrvChange(d) = 0 Or DrvAdf(d) = 0
+      v = v & ~$04
+    EndIf
+  EndIf
+  ProcedureReturn v
+EndProcedure
+
+Procedure DriveInsert(d.i, adf.i, prot.i)
+  DrvAdf(d) = adf
+  DrvProt(d) = prot
+  DrvChange(d) = 0
+  TrackFor(d) = -1
+EndProcedure
+
+Procedure DriveEject(d.i)
+  TrackStore(d)
+  DrvAdf(d) = 0
+  DrvChange(d) = 0
+  TrackFor(d) = -1
+EndProcedure
+
+; ---------------------------------------------------------------- disk DMA
+Procedure DiskLenWrite(v.i)
+  If (v & $8000) = 0
+    DskOn = 0
+    DskLenPrev = v
+    ProcedureReturn
+  EndIf
+  If DskLenPrev & $8000
+    DskLeft = v & $3FFF
+    DskWrite = Bool(v & $4000)
+    DskOn = 1
+    DskSyncWait = Bool((AdkCon & $400) And DskWrite = 0)
+  EndIf
+  DskLenPrev = v
+EndProcedure
+
+; Two MFM words pass the head every line.
+Procedure DiskLine()
+  Protected k.i, d.i, w.i, idx.i
+  d = DrvSel
+  If d < 0
+    d = 0
+  EndIf
+  If DrvMotor(d) = 0
+    If DskOn And DskLeft > 0 And DrvAdf(d) = 0
+      ; no disk turning: nothing arrives
+    EndIf
+    ProcedureReturn
+  EndIf
+  TrackEnsure(d)
+  For k = 0 To 1
+    idx = d * #TRACK_WORDS + TrackPos(d)
+    w = TrackBuf(idx)
+    TrackPos(d) = TrackPos(d) + 1
+    If TrackPos(d) >= #TRACK_WORDS
+      TrackPos(d) = 0
+      CiaFlag(1)
+    EndIf
+    DskByte = w & $FF
+    DskWordEq = Bool(w = Cust(#R_DSKSYNC >> 1))
+    If DskWordEq
+      IntReq = IntReq | #INT_DSKSYN
+      AmigaSetIpl()
+    EndIf
+    If DskOn And (DmaCon & (#DMA_EN | #DMA_DSK)) = (#DMA_EN | #DMA_DSK) And DskLeft > 0
+      If DskWrite
+        TrackBuf(idx) = ChipRd(DskPt)
+        DrvDirty(d) = 1
+        DskPt = (DskPt + 2) & ChipMask
+        DskLeft = DskLeft - 1
+      ElseIf DskSyncWait
+        If DskWordEq
+          DskSyncWait = 0
+        EndIf
+      Else
+        ChipWr(DskPt, w)
+        DskPt = (DskPt + 2) & ChipMask
+        DskLeft = DskLeft - 1
+      EndIf
+      If DskLeft = 0
+        DskOn = 0
+        IntReq = IntReq | #INT_DSKBLK
+        AmigaSetIpl()
+      EndIf
+    EndIf
+  Next
+EndProcedure

@@ -1,0 +1,114 @@
+FC0008  4df900dff000                 Start:  lea     CUSTOM,a6
+FC000E  3d7c7fff009a                         move.w  #$7FFF,$9A(a6)  ; INTENA: all off
+FC0014  3d7c7fff0096                         move.w  #$7FFF,$96(a6)  ; DMACON: all off
+FC001A  3d7c7fff009c                         move.w  #$7FFF,$9C(a6)  ; INTREQ: clear
+FC0020  13fc000300bfe201                     move.b  #3,CIAA+$200    ; CIA-A DDRA: OVL and LED are outputs
+FC0028  13fc000200bfe001                     move.b  #2,CIAA         ; OVL = 0: chip RAM at $000000
+FC0030  4ff900080000                         lea     $80000,sp
+FC0036  3d7c01740032                         move.w  #$0174,$32(a6)  ; SERPER 19200 baud
+FC003C  41fa01d2                             lea     Hello(pc),a0
+FC0040  610001b2                             bsr     Say
+FC0044  41f900010000                         lea     SCREEN,a0
+FC004A  303c09ff                             move.w  #(40*256/4)-1,d0
+FC004E  4298                         .clr:   clr.l   (a0)+
+FC0050  51c8fffc                             dbra    d0,.clr
+FC0054  41f900010000                         lea     SCREEN,a0
+FC005A  721f                                 moveq   #31,d1
+FC005C  7009                         .row:   moveq   #9,d0
+FC005E  243cff00ff00                         move.l  #$FF00FF00,d2
+FC0064  08010003                             btst    #3,d1
+FC0068  6702                                 beq.s   .even
+FC006A  4682                                 not.l   d2
+FC006C  20c2                         .even:  move.l  d2,(a0)+
+FC006E  51c8ffec                             dbra    d0,.row
+FC0072  51c9ffe8                             dbra    d1,.row
+FC0076  3d7c82400096                         move.w  #$8240,$96(a6)  ; DMAEN | BLTEN
+FC007C  3d7c01ff0040                         move.w  #$01FF,$40(a6)  ; BLTCON0: use D, LF = $FF
+FC0082  3d7c00000042                         move.w  #0,$42(a6)      ; BLTCON1
+FC0088  2d7c00010f0c0054                     move.l  #SCREEN+96*40+12,$54(a6) ; BLTDPT
+FC0090  3d7c00180066                         move.w  #40-16,$66(a6)  ; BLTDMOD
+FC0096  3d7c10080058                         move.w  #(64<<6)|8,$58(a6) ; BLTSIZE: 64 lines of 8 words
+FC009C  082e00060002                 .wb:    btst    #6,$02(a6)      ; DMACONR BBUSY
+FC00A2  66f8                                 bne.s   .wb
+FC00A4  3d7c053c0040                         move.w  #$053C,$40(a6)  ; use C, D; D = A xor C ... A from BLTADAT
+FC00AA  3d7cffff0074                         move.w  #$FFFF,$74(a6)  ; BLTADAT
+FC00B0  3d7cffff0044                         move.w  #$FFFF,$44(a6)
+FC00B6  3d7cffff0046                         move.w  #$FFFF,$46(a6)
+FC00BC  2d7c000112d20048                     move.l  #SCREEN+120*40+18,$48(a6) ; BLTCPT
+FC00C4  2d7c000112d20054                     move.l  #SCREEN+120*40+18,$54(a6) ; BLTDPT
+FC00CC  3d7c001e0060                         move.w  #40-10,$60(a6)
+FC00D2  3d7c001e0066                         move.w  #40-10,$66(a6)
+FC00D8  3d7c0c050058                         move.w  #(48<<6)|5,$58(a6)
+FC00DE  082e00060002                 .wb2:   btst    #6,$02(a6)
+FC00E4  66f8                                 bne.s   .wb2
+FC00E6  41f900002000                         lea     SPRDATA,a0
+FC00EC  30fc6450                             move.w  #$6450,(a0)+    ; SPR0POS: VSTART $64, HSTART $50*2
+FC00F0  30fc7400                             move.w  #$7400,(a0)+    ; SPR0CTL: VSTOP $74
+FC00F4  43fa0178                             lea     Diamond(pc),a1
+FC00F8  700f                                 moveq   #15,d0
+FC00FA  20d9                         .sp:    move.l  (a1)+,(a0)+
+FC00FC  51c8fffc                             dbra    d0,.sp
+FC0100  4298                                 clr.l   (a0)+
+FC0102  3d7c0f0001a2                         move.w  #$0F00,$1A2(a6) ; COLOR17 red
+FC0108  3d7c0ff001a4                         move.w  #$0FF0,$1A4(a6) ; COLOR18 yellow
+FC010E  3d7c0fff01a6                         move.w  #$0FFF,$1A6(a6) ; COLOR19 white
+FC0114  2d7c000020000120                     move.l  #SPRDATA,$120(a6) ; SPR0PT
+FC011C  41ee0124                             lea     $124(a6),a0     ; the other sprites point at an empty one
+FC0120  7006                                 moveq   #6,d0
+FC0122  20fc00002044                 .nsp:   move.l  #SPRDATA+16*4+4,(a0)+
+FC0128  51c8fff8                             dbra    d0,.nsp
+FC012C  41f900001000                         lea     COPLIST,a0
+FC0132  20fc00e00001                         move.l  #$00E00001,(a0)+ ; BPL1PTH = $0001
+FC0138  20fc00e20000                         move.l  #$00E20000,(a0)+ ; BPL1PTL = $0000
+FC013E  303c2c07                             move.w  #$2C07,d0       ; WAIT line $2C
+FC0142  7200                                 moveq   #0,d1
+FC0144  343c00ff                             move.w  #255,d2
+FC0148  30c0                         .cl:    move.w  d0,(a0)+
+FC014A  30fcfffe                             move.w  #$FFFE,(a0)+
+FC014E  30fc0180                             move.w  #$0180,(a0)+    ; COLOR00
+FC0152  3601                                 move.w  d1,d3
+FC0154  e84b                                 lsr.w   #4,d3
+FC0156  0243000f                             and.w   #$000F,d3
+FC015A  30c3                                 move.w  d3,(a0)+
+FC015C  d07c0100                             add.w   #$0100,d0
+FC0160  5241                                 addq.w  #1,d1
+FC0162  51caffe4                             dbra    d2,.cl
+FC0166  20fcfffffffe                         move.l  #$FFFFFFFE,(a0)+ ; end
+FC016C  2d7c000010000080                     move.l  #COPLIST,$80(a6) ; COP1LC
+FC0174  3d7c00000088                         move.w  #0,$88(a6)      ; COPJMP1
+FC017A  3d7c12000100                         move.w  #$1200,$100(a6) ; BPLCON0: 1 plane, colour
+FC0180  3d7c00000102                         move.w  #0,$102(a6)
+FC0186  3d7c00240104                         move.w  #$0024,$104(a6) ; BPLCON2: sprites in front
+FC018C  3d7c00000108                         move.w  #0,$108(a6)
+FC0192  3d7c0000010a                         move.w  #0,$10A(a6)
+FC0198  3d7c2c81008e                         move.w  #$2C81,$8E(a6)  ; DIWSTRT
+FC019E  3d7c2cc10090                         move.w  #$2CC1,$90(a6)  ; DIWSTOP
+FC01A4  3d7c00380092                         move.w  #$0038,$92(a6)  ; DDFSTRT
+FC01AA  3d7c00d00094                         move.w  #$00D0,$94(a6)  ; DDFSTOP
+FC01B0  3d7c0fff0182                         move.w  #$0FFF,$182(a6) ; COLOR01 white
+FC01B6  3d7c83e00096                         move.w  #$83E0,$96(a6)  ; DMAEN BPLEN COPEN BLTEN SPREN
+FC01BC  41fa0082                             lea     Done(pc),a0
+FC01C0  61000032                             bsr     Say
+FC01C4  7e00                                 moveq   #0,d7
+FC01C6  302e001e                     .frame: move.w  $1E(a6),d0      ; INTREQR
+FC01CA  08000005                             btst    #5,d0
+FC01CE  67f6                                 beq.s   .frame
+FC01D0  3d7c0020009c                         move.w  #$0020,$9C(a6)  ; clear VERTB
+FC01D6  5287                                 addq.l  #1,d7
+FC01D8  2007                                 move.l  d7,d0
+FC01DA  80fc0032                             divu    #50,d0
+FC01DE  4840                                 swap    d0
+FC01E0  4a40                                 tst.w   d0
+FC01E2  66e2                                 bne.s   .frame
+FC01E4  0879000100bfe001                     bchg    #1,CIAA         ; the power LED
+FC01EC  3d7c012e0030                         move.w  #$012E,$30(a6)  ; SERDAT '.'
+FC01F2  60d2                                 bra.s   .frame
+FC01F4  1018                         Say:    move.b  (a0)+,d0
+FC01F6  6716                                 beq.s   .end
+FC01F8  082e000d0018                 .tbe:   btst    #13,$18(a6)     ; SERDATR TBE
+FC01FE  67f8                                 beq.s   .tbe
+FC0200  024000ff                             and.w   #$FF,d0
+FC0204  00400100                             or.w    #$0100,d0       ; stop bit
+FC0208  3d400030                             move.w  d0,$30(a6)
+FC020C  60e6                                 bra.s   Say
+FC020E  4e75                         .end:   rts

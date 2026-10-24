@@ -1,0 +1,51 @@
+; SingleStepTests 680x0 runner, on the board. tools/stream.py sends the compact
+; stream (tools/vectors.py) over USB serial; every test runs here through
+; M68kRun(1) and is judged here by vectors_run.pmi, the runner the desktop
+; checker uses too. Prints a verdict line per group and the totals.
+EnableExplicit
+#VEC_POOL = 12
+
+Procedure.i RxByte()
+  Protected c.i
+  c = UsbSerialRead()
+  While c < 0
+    UsbSerialTask()
+    SafetyPet()
+    c = UsbSerialRead()
+  Wend
+  ProcedureReturn c
+EndProcedure
+
+Procedure SayChar(c.i)
+  UsbSerialWrite(c)
+EndProcedure
+
+Procedure SayHex(v.i, digits.i)
+  Hex(v, digits)
+EndProcedure
+
+Procedure.i Same32(a.i, b.i)
+  ProcedureReturn Bool(a = b)
+EndProcedure
+
+XIncludeFile "vectors_run.pmi"
+
+Procedure Main()
+  SafetyBoot()
+  ClockInitKhz(#CLOCK_KHZ)
+  TimerInit()
+  UsbSerialInit()
+  WaitHost()
+  Say("68000 vectors clk_sys kHz=")
+  Num(ClockSysKhz())
+  Say(" asm-tail=")
+  Num(#M68K_ASM_TAIL)
+  Eol()
+  Say("READY")
+  Eol()
+  Repeat
+    VecStream()
+    Say("READY")
+    Eol()
+  ForEver
+EndProcedure

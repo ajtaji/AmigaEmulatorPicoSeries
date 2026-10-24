@@ -1,0 +1,188 @@
+; Amiga 500 (OCS, PAL) custom chips: the shared state. Agnus (beam, DMA,
+; copper, blitter), Denise (display), Paula (interrupts, audio, disk). Every
+; module includes this first. Written in the subset PureMetal and PureBasic
+; both compile, for the desktop program and the Pico build alike.
+
+; Register offsets (from $DFF000)
+#R_BLTDDAT = $000
+#R_DMACONR = $002
+#R_VPOSR = $004
+#R_VHPOSR = $006
+#R_DSKDATR = $008
+#R_JOY0DAT = $00A
+#R_JOY1DAT = $00C
+#R_CLXDAT = $00E
+#R_ADKCONR = $010
+#R_POT0DAT = $012
+#R_POT1DAT = $014
+#R_POTGOR = $016
+#R_SERDATR = $018
+#R_DSKBYTR = $01A
+#R_INTENAR = $01C
+#R_INTREQR = $01E
+#R_DSKPTH = $020
+#R_DSKPTL = $022
+#R_DSKLEN = $024
+#R_VPOSW = $02A
+#R_VHPOSW = $02C
+#R_COPCON = $02E
+#R_SERDAT = $030
+#R_SERPER = $032
+#R_POTGO = $034
+#R_JOYTEST = $036
+#R_BLTCON0 = $040
+#R_BLTCON1 = $042
+#R_BLTAFWM = $044
+#R_BLTALWM = $046
+#R_BLTCPTH = $048
+#R_BLTCPTL = $04A
+#R_BLTBPTH = $04C
+#R_BLTBPTL = $04E
+#R_BLTAPTH = $050
+#R_BLTAPTL = $052
+#R_BLTDPTH = $054
+#R_BLTDPTL = $056
+#R_BLTSIZE = $058
+#R_BLTCMOD = $060
+#R_BLTBMOD = $062
+#R_BLTAMOD = $064
+#R_BLTDMOD = $066
+#R_BLTCDAT = $070
+#R_BLTBDAT = $072
+#R_BLTADAT = $074
+#R_DSKSYNC = $07E
+#R_COP1LCH = $080
+#R_COP1LCL = $082
+#R_COP2LCH = $084
+#R_COP2LCL = $086
+#R_COPJMP1 = $088
+#R_COPJMP2 = $08A
+#R_DIWSTRT = $08E
+#R_DIWSTOP = $090
+#R_DDFSTRT = $092
+#R_DDFSTOP = $094
+#R_DMACON = $096
+#R_CLXCON = $098
+#R_INTENA = $09A
+#R_INTREQ = $09C
+#R_ADKCON = $09E
+#R_AUD0LCH = $0A0
+#R_BPL1PTH = $0E0
+#R_BPLCON0 = $100
+#R_BPLCON1 = $102
+#R_BPLCON2 = $104
+#R_BPL1MOD = $108
+#R_BPL2MOD = $10A
+#R_BPL1DAT = $110
+#R_SPR0PTH = $120
+#R_SPR0POS = $140
+#R_COLOR00 = $180
+
+; DMACON bits
+#DMA_AUD0 = $0001
+#DMA_DSK = $0010
+#DMA_SPR = $0020
+#DMA_BLT = $0040
+#DMA_COP = $0080
+#DMA_BPL = $0100
+#DMA_EN = $0200
+#DMA_BLTPRI = $0400
+#DMA_BZERO = $2000
+#DMA_BBUSY = $4000
+
+; INTENA / INTREQ bits
+#INT_TBE = $0001
+#INT_DSKBLK = $0002
+#INT_SOFT = $0004
+#INT_PORTS = $0008
+#INT_COPER = $0010
+#INT_VERTB = $0020
+#INT_BLIT = $0040
+#INT_AUD0 = $0080
+#INT_RBF = $0800
+#INT_DSKSYN = $1000
+#INT_EXTER = $2000
+#INT_INTEN = $4000
+
+; The beam (PAL): 227 colour clocks a line, 312 lines a frame (313 in a long
+; frame). The CPU clock is two colour clocks... per colour clock: 2 CPU cycles.
+#AM_CCK_LINE = 227
+#AM_CPU_LINE = 454
+#AM_LINES_SHORT = 312
+
+; The output picture: hires pixels from DIW horizontal position #AM_OUT_X0
+; (in lowres pixels) and lines from #AM_OUT_Y0, #AM_OUT_W x #AM_OUT_H.
+#AM_OUT_X0 = $58
+#AM_OUT_W = 736
+#AM_OUT_Y0 = 26
+#AM_OUT_H = 287
+
+Global Dim Cust.u(256)            ; the last value written to each register
+Global Dim Color.u(32)            ; COLOR00-31 (12-bit RGB)
+Global DmaCon.i, IntEna.i, IntReq.i, AdkCon.i, CopCon.i, ClxCon.i, ClxDat.i
+Global BplCon0.i, BplCon1.i, BplCon2.i, Bpl1Mod.i, Bpl2Mod.i
+Global DiwStrt.i, DiwStop.i, DdfStrt.i, DdfStop.i
+Global Dim BplPt.i(6)
+Global Dim SprPt.i(8)
+Global Dim SprPos.i(8)
+Global Dim SprCtl.i(8)
+Global Dim SprDatA.i(8)
+Global Dim SprDatB.i(8)
+Global Dim SprArmed.i(8)          ; 1 while the sprite's data registers show on this line
+Global Dim SprState.i(8)          ; DMA: 0 fetch POS/CTL next, 1 waiting for VSTART, 2 showing, 3 done
+Global Cop1Lc.i, Cop2Lc.i, CopPc.i
+Global SerPer.i, PotGo.i, SerDatR.i
+Global LongFrame.i, LaceLong.i
+
+; Time. FrameCyc counts CPU cycles from the start of the frame; LineCyc0 is
+; the CPU cycle at which the current line began; VPos is the line number.
+Global FrameCyc.i, LineCyc0.i, VPos.i, LinesThisFrame.i, FrameCount.i
+Global SliceStart.i, ChipHost.i, ChipMask.i
+Global AmigaETotal.i, AmigaEFrac.i
+
+Declare AmigaSetIpl()
+Declare DispCatchUp(hpos.i)
+Declare BlitStart()
+Declare BlitFinish()
+Declare.i BlitBusy()
+Declare CopperJump(lc.i)
+Declare DiskLenWrite(v.i)
+Declare AudioWrite(reg.i, v.i)
+Declare.i AmigaNowCyc()
+
+; The colour clock within the current line, from the CPU's current time.
+Procedure.i AmigaHPos()
+  Protected h.i
+  h = (AmigaNowCyc() - LineCyc0) >> 1
+  If h > #AM_CCK_LINE - 1
+    h = #AM_CCK_LINE - 1
+  EndIf
+  If h < 0
+    h = 0
+  EndIf
+  ProcedureReturn h
+EndProcedure
+
+; A 16-bit value sign-extended, the same on a 32-bit and a 64-bit host.
+Procedure.i Sx16(v.i)
+  ProcedureReturn ((v & $FFFF) ! $8000) - $8000
+EndProcedure
+
+; Clear bytes (a multiple of 4) at a 4-byte aligned host address.
+Procedure MemClear(addr.i, bytes.i)
+  Protected k.i
+  k = 0
+  While k < bytes
+    PokeL(addr + k, 0)
+    k = k + 4
+  Wend
+EndProcedure
+
+; A word of chip RAM (DMA side): addr is masked to the chip RAM.
+Procedure.i ChipRd(addr.i)
+  ProcedureReturn PeekU(ChipHost + (addr & ChipMask & ~1))
+EndProcedure
+
+Procedure ChipWr(addr.i, v.i)
+  PokeU(ChipHost + (addr & ChipMask & ~1), v)
+EndProcedure

@@ -1,0 +1,325 @@
+; The two 8520 CIAs of the Amiga 500. Shared by the desktop program and the
+; Pico build (written in the subset PureMetal and PureBasic both compile).
+;
+; CIA-A (index 0): $BFE001, odd bytes. Port A: /FIR1 /FIR0 /RDY /TK0 /WPRO /CHNG
+;   (inputs), LED and OVL (outputs). Port B: the parallel port. Serial: the
+;   keyboard. TOD: vertical sync. Interrupt: level 2 (INTREQ PORTS).
+; CIA-B (index 1): $BFD000, even bytes. Port A: serial-port lines. Port B: the
+;   floppy controls /MTR /SEL3../SEL0 /SIDE DIR /STEP. TOD: horizontal sync.
+;   FLAG: the disk index pulse. Interrupt: level 6 (INTREQ EXTER).
+;
+; Timers count the E clock (the CPU clock / 10). They are brought up to date
+; lazily: every access first advances the CIA to the current time.
+;
+; The machine provides: CiaNowE() (E clocks since an arbitrary start, it may
+; wrap at 31 bits), CiaPortAIn(cia) / CiaPortBIn(cia) (the input pins),
+; CiaPortOut(cia, port, value) (output change), CiaIrq(cia) (the /IRQ line
+; went low: raise INTREQ), CiaSerialOut(cia, byte).
+
+#CIA_ICR_TA = 1
+#CIA_ICR_TB = 2
+#CIA_ICR_ALRM = 4
+#CIA_ICR_SP = 8
+#CIA_ICR_FLG = 16
+
+Global Dim CiaPra.i(2)
+Global Dim CiaPrb.i(2)
+Global Dim CiaDdra.i(2)
+Global Dim CiaDdrb.i(2)
+Global Dim CiaTa.i(2)          ; timer A counter
+Global Dim CiaTaLatch.i(2)
+Global Dim CiaTb.i(2)
+Global Dim CiaTbLatch.i(2)
+Global Dim CiaCra.i(2)
+Global Dim CiaCrb.i(2)
+Global Dim CiaIcr.i(2)         ; interrupt data (bit 7 set when /IRQ is asserted)
+Global Dim CiaMask.i(2)
+Global Dim CiaSdr.i(2)
+Global Dim CiaTod.i(2)         ; 24-bit time of day
+Global Dim CiaTodLatch.i(2)
+Global Dim CiaTodLatched.i(2)
+Global Dim CiaTodStopped.i(2)
+Global Dim CiaAlarm.i(2)
+Global Dim CiaLastE.i(2)       ; E clock of the last update
+Global Dim CiaTaPending.i(2)   ; force-load / start delay emulation not modelled
+Global CiaNow.i
+
+Declare.i CiaNowE()
+Declare.i CiaPortAIn(cia.i)
+Declare.i CiaPortBIn(cia.i)
+Declare CiaPortOut(cia.i, port.i, value.i)
+Declare CiaIrq(cia.i)
+Declare CiaSerialOut(cia.i, byte.i)
+
+Procedure CiaReset()
+  Protected c.i
+  For c = 0 To 1
+    CiaPra(c) = $FF
+    CiaPrb(c) = $FF
+    CiaDdra(c) = 0
+    CiaDdrb(c) = 0
+    CiaTa(c) = $FFFF
+    CiaTaLatch(c) = $FFFF
+    CiaTb(c) = $FFFF
+    CiaTbLatch(c) = $FFFF
+    CiaCra(c) = 0
+    CiaCrb(c) = 0
+    CiaIcr(c) = 0
+    CiaMask(c) = 0
+    CiaSdr(c) = 0
+    CiaTod(c) = 0
+    CiaTodLatched(c) = 0
+    CiaTodStopped(c) = 0
+    CiaAlarm(c) = 0
+    CiaLastE(c) = CiaNowE()
+  Next
+EndProcedure
+
+; An interrupt source fired: set its bit, and pull /IRQ when it is enabled.
+Procedure CiaSetIcr(c.i, bit.i)
+  CiaIcr(c) = CiaIcr(c) | bit
+  If CiaMask(c) & bit
+    If (CiaIcr(c) & $80) = 0
+      CiaIcr(c) = CiaIcr(c) | $80
+    EndIf
+    CiaIrq(c)
+  EndIf
+EndProcedure
+
+; Timer B counts timer A underflows (CRB INMODE = 10 or 11), or E clocks.
+Procedure CiaTimerBStep(c.i, n.i)
+  Protected left.i
+  While n > 0
+    If CiaTb(c) >= n
+      CiaTb(c) = CiaTb(c) - n
+      n = 0
+      If CiaTb(c) = 0
+        ; counts down to 0 and underflows on the next tick
+      EndIf
+    Else
+      n = n - CiaTb(c) - 1
+      CiaTb(c) = CiaTbLatch(c)
+      CiaSetIcr(c, #CIA_ICR_TB)
+      If CiaCrb(c) & 8
+        CiaCrb(c) = CiaCrb(c) & ~1
+        n = 0
+      EndIf
+    EndIf
+  Wend
+EndProcedure
+
+; Advance timers A and B by n E clocks. Returns the number of timer A underflows.
+Procedure.i CiaTimerAStep(c.i, n.i)
+  Protected under.i, period.i
+  If (CiaCra(c) & 1) = 0 Or (CiaCra(c) & $20)
+    ProcedureReturn 0
+  EndIf
+  If n <= CiaTa(c)
+    CiaTa(c) = CiaTa(c) - n
+    ProcedureReturn 0
+  EndIf
+  ; the first underflow, then whole periods
+  n = n - CiaTa(c) - 1
+  under = 1
+  CiaTa(c) = CiaTaLatch(c)
+  If CiaCra(c) & 8
+    CiaCra(c) = CiaCra(c) & ~1
+  Else
+    period = CiaTaLatch(c) + 1
+    under = under + n / period
+    CiaTa(c) = CiaTaLatch(c) - (n % period)
+  EndIf
+  CiaSetIcr(c, #CIA_ICR_TA)
+  ProcedureReturn under
+EndProcedure
+
+; Bring CIA c up to the current E clock.
+Procedure CiaSync(c.i)
+  Protected now.i, n.i, under.i
+  now = CiaNowE()
+  n = (now - CiaLastE(c)) & $7FFFFFFF
+  CiaLastE(c) = now
+  If n = 0
+    ProcedureReturn
+  EndIf
+  under = CiaTimerAStep(c, n)
+  If CiaCrb(c) & 1
+    If (CiaCrb(c) & $60) = $40 Or (CiaCrb(c) & $60) = $60
+      If under
+        CiaTimerBStep(c, under)
+      EndIf
+    ElseIf (CiaCrb(c) & $60) = 0
+      CiaTimerBStep(c, n)
+    EndIf
+  EndIf
+EndProcedure
+
+; One TOD tick (CIA-A: vertical sync, CIA-B: horizontal sync).
+Procedure CiaTodTick(c.i)
+  If CiaTodStopped(c)
+    ProcedureReturn
+  EndIf
+  CiaTod(c) = (CiaTod(c) + 1) & $FFFFFF
+  If CiaTod(c) = CiaAlarm(c)
+    CiaSync(c)
+    CiaSetIcr(c, #CIA_ICR_ALRM)
+  EndIf
+EndProcedure
+
+; FLAG pin (CIA-B: the disk index pulse) went low.
+Procedure CiaFlag(c.i)
+  CiaSync(c)
+  CiaSetIcr(c, #CIA_ICR_FLG)
+EndProcedure
+
+; A byte arrived on the serial port (CIA-A: the keyboard), input mode only.
+Procedure CiaSerialIn(c.i, byte.i)
+  CiaSync(c)
+  CiaSdr(c) = byte & $FF
+  CiaSetIcr(c, #CIA_ICR_SP)
+EndProcedure
+
+Procedure.i CiaRead(c.i, reg.i)
+  Protected v.i
+  CiaSync(c)
+  reg = reg & 15
+  If reg = 0
+    v = (CiaPra(c) & CiaDdra(c)) | (CiaPortAIn(c) & ~CiaDdra(c))
+  ElseIf reg = 1
+    v = (CiaPrb(c) & CiaDdrb(c)) | (CiaPortBIn(c) & ~CiaDdrb(c))
+  ElseIf reg = 2
+    v = CiaDdra(c)
+  ElseIf reg = 3
+    v = CiaDdrb(c)
+  ElseIf reg = 4
+    v = CiaTa(c) & $FF
+  ElseIf reg = 5
+    v = (CiaTa(c) >> 8) & $FF
+  ElseIf reg = 6
+    v = CiaTb(c) & $FF
+  ElseIf reg = 7
+    v = (CiaTb(c) >> 8) & $FF
+  ElseIf reg = 8
+    If CiaTodLatched(c)
+      v = CiaTodLatch(c) & $FF
+      CiaTodLatched(c) = 0
+    Else
+      v = CiaTod(c) & $FF
+    EndIf
+  ElseIf reg = 9
+    If CiaTodLatched(c)
+      v = (CiaTodLatch(c) >> 8) & $FF
+    Else
+      v = (CiaTod(c) >> 8) & $FF
+    EndIf
+  ElseIf reg = 10
+    ; reading the high byte latches the whole TOD until the low byte is read
+    CiaTodLatch(c) = CiaTod(c)
+    CiaTodLatched(c) = 1
+    v = (CiaTod(c) >> 16) & $FF
+  ElseIf reg = 12
+    v = CiaSdr(c)
+  ElseIf reg = 13
+    v = CiaIcr(c)
+    CiaIcr(c) = 0
+  ElseIf reg = 14
+    v = CiaCra(c)
+  ElseIf reg = 15
+    v = CiaCrb(c)
+  Else
+    v = $FF
+  EndIf
+  ProcedureReturn v & $FF
+EndProcedure
+
+Procedure CiaWrite(c.i, reg.i, v.i)
+  CiaSync(c)
+  reg = reg & 15
+  v = v & $FF
+  If reg = 0
+    CiaPra(c) = v
+    CiaPortOut(c, 0, (CiaPra(c) & CiaDdra(c)) | (~CiaDdra(c) & $FF))
+  ElseIf reg = 1
+    CiaPrb(c) = v
+    CiaPortOut(c, 1, (CiaPrb(c) & CiaDdrb(c)) | (~CiaDdrb(c) & $FF))
+  ElseIf reg = 2
+    CiaDdra(c) = v
+    CiaPortOut(c, 0, (CiaPra(c) & CiaDdra(c)) | (~CiaDdra(c) & $FF))
+  ElseIf reg = 3
+    CiaDdrb(c) = v
+    CiaPortOut(c, 1, (CiaPrb(c) & CiaDdrb(c)) | (~CiaDdrb(c) & $FF))
+  ElseIf reg = 4
+    CiaTaLatch(c) = (CiaTaLatch(c) & $FF00) | v
+  ElseIf reg = 5
+    CiaTaLatch(c) = (CiaTaLatch(c) & $FF) | (v << 8)
+    ; writing the high byte of a stopped timer loads it; in one-shot mode it starts
+    If (CiaCra(c) & 1) = 0
+      CiaTa(c) = CiaTaLatch(c)
+    EndIf
+    If CiaCra(c) & 8
+      CiaTa(c) = CiaTaLatch(c)
+      CiaCra(c) = CiaCra(c) | 1
+    EndIf
+  ElseIf reg = 6
+    CiaTbLatch(c) = (CiaTbLatch(c) & $FF00) | v
+  ElseIf reg = 7
+    CiaTbLatch(c) = (CiaTbLatch(c) & $FF) | (v << 8)
+    If (CiaCrb(c) & 1) = 0
+      CiaTb(c) = CiaTbLatch(c)
+    EndIf
+    If CiaCrb(c) & 8
+      CiaTb(c) = CiaTbLatch(c)
+      CiaCrb(c) = CiaCrb(c) | 1
+    EndIf
+  ElseIf reg = 8
+    If CiaCrb(c) & $80
+      CiaAlarm(c) = (CiaAlarm(c) & $FFFF00) | v
+    Else
+      CiaTod(c) = (CiaTod(c) & $FFFF00) | v
+      CiaTodStopped(c) = 0
+    EndIf
+  ElseIf reg = 9
+    If CiaCrb(c) & $80
+      CiaAlarm(c) = (CiaAlarm(c) & $FF00FF) | (v << 8)
+    Else
+      CiaTod(c) = (CiaTod(c) & $FF00FF) | (v << 8)
+    EndIf
+  ElseIf reg = 10
+    If CiaCrb(c) & $80
+      CiaAlarm(c) = (CiaAlarm(c) & $FFFF) | (v << 16)
+    Else
+      ; writing the high byte stops TOD until the low byte is written
+      CiaTod(c) = (CiaTod(c) & $FFFF) | (v << 16)
+      CiaTodStopped(c) = 1
+    EndIf
+  ElseIf reg = 12
+    CiaSdr(c) = v
+    If CiaCra(c) & $40
+      CiaSerialOut(c, v)
+      CiaSetIcr(c, #CIA_ICR_SP)
+    EndIf
+  ElseIf reg = 13
+    If v & $80
+      CiaMask(c) = CiaMask(c) | (v & $1F)
+    Else
+      CiaMask(c) = CiaMask(c) & ~(v & $1F)
+    EndIf
+    If CiaIcr(c) & CiaMask(c) & $1F
+      CiaIcr(c) = CiaIcr(c) | $80
+      CiaIrq(c)
+    EndIf
+  ElseIf reg = 14
+    If v & $10
+      CiaTa(c) = CiaTaLatch(c)
+    EndIf
+    CiaCra(c) = v & $EF
+    If (v & $40) <> 0 And c = 0
+      CiaSerialOut(c, -1)
+    EndIf
+  ElseIf reg = 15
+    If v & $10
+      CiaTb(c) = CiaTbLatch(c)
+    EndIf
+    CiaCrb(c) = v & $EF
+  EndIf
+EndProcedure

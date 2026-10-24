@@ -1,0 +1,382 @@
+; The display: bitplane DMA (Agnus), sprite DMA, and Denise's pixel output.
+;
+; A line is drawn by catch-up: DispCatchUp(h) draws the output up to colour
+; clock h, so a register written in the middle of a line (a colour by the
+; copper, most often) takes effect from that point on. The bitplane words of
+; the line are fetched when the drawing first reaches the data fetch start, so
+; pointers the copper sets early in the line are honoured.
+;
+; Horizontal positions are lowres pixels in display-window (DIW) units, the
+; ones DIWSTRT uses: the data fetched from DDFSTRT appears at DDFSTRT * 2 + 17
+; (lowres) or DDFSTRT * 2 + 9 (hires). A colour clock h is the DIW position
+; h * 2 + #DISP_HDELAY.
+;
+; The output line LineBuf holds #AM_OUT_W hires pixels as 12-bit RGB, from DIW
+; position #AM_OUT_X0; at the end of each line in the picture the machine
+; calls AmigaLineDone(y).
+
+#DISP_HDELAY = 1
+#DISP_WORDS = 64
+
+Global Dim LineBuf.u(#AM_OUT_W + 16)
+Global Dim BplWord.u(6 * #DISP_WORDS)
+Global Dim LineIdx.l(#DISP_WORDS * 4 + 16)       ; playfield colour index by mode pixel (bytes; .l for alignment)
+Global Dim SprLine.l(136)                        ; sprite pixel by lowres DIW position (bytes): bits 0-4 colour, 5-7 pair
+Global DispPos.i                                 ; next output hires pixel to draw
+Global DispFetched.i, DispFirst.i, DispPixels.i, DispHires.i, DispPlanes.i, DispDma.i
+Global DispVOpen.i, DispHam.i, DispSpr.i, DispDiwH0.i, DispDiwH1.i
+Global DiwVStart.i, DiwVStop.i, DiwHStart.i, DiwHStop.i, DiwVOn.i
+
+Declare AmigaLineDone(y.i)
+
+Procedure DiwDecode()
+  DiwVStart = (DiwStrt >> 8) & $FF
+  DiwHStart = DiwStrt & $FF
+  DiwVStop = ((DiwStop >> 8) & $FF) | (((~DiwStop) & $8000) >> 7)
+  DiwHStop = (DiwStop & $FF) | $100
+EndProcedure
+
+; Sprite DMA for this line: at the end of the vertical blank each sprite reads
+; its POS / CTL words; on its VSTART line it starts showing; every line until
+; VSTOP it reads DATA / DATB; at VSTOP it reads the next POS / CTL.
+Procedure SpriteDmaLine()
+  Protected s.i, vs.i, ve.i, pt.i
+  If (DmaCon & (#DMA_EN | #DMA_SPR)) <> (#DMA_EN | #DMA_SPR)
+    ProcedureReturn
+  EndIf
+  If VPos < 25
+    ProcedureReturn
+  EndIf
+  For s = 0 To 7
+    pt = SprPt(s)
+    If VPos = 25
+      SprState(s) = 0
+    EndIf
+    If SprState(s) = 0
+      SprPos(s) = ChipRd(pt)
+      SprCtl(s) = ChipRd(pt + 2)
+      SprPt(s) = (pt + 4) & ChipMask
+      SprArmed(s) = 0
+      SprState(s) = 1
+      If SprPos(s) = 0 And SprCtl(s) = 0
+        SprState(s) = 3
+      EndIf
+    EndIf
+    If SprState(s) = 1 Or SprState(s) = 2
+      vs = ((SprPos(s) >> 8) & $FF) | ((SprCtl(s) & 4) << 6)
+      ve = ((SprCtl(s) >> 8) & $FF) | ((SprCtl(s) & 2) << 7)
+      If SprState(s) = 1 And VPos = vs
+        SprState(s) = 2
+      EndIf
+      If SprState(s) = 2
+        If VPos >= ve
+          pt = SprPt(s)
+          SprPos(s) = ChipRd(pt)
+          SprCtl(s) = ChipRd(pt + 2)
+          SprPt(s) = (pt + 4) & ChipMask
+          SprArmed(s) = 0
+          SprState(s) = 1
+          If SprPos(s) = 0 And SprCtl(s) = 0
+            SprState(s) = 3
+          EndIf
+        Else
+          pt = SprPt(s)
+          SprDatA(s) = ChipRd(pt)
+          SprDatB(s) = ChipRd(pt + 2)
+          SprPt(s) = (pt + 4) & ChipMask
+          SprArmed(s) = 1
+        EndIf
+      EndIf
+    EndIf
+  Next
+EndProcedure
+
+; The sprite pixels of this line, by lowres DIW position.
+Procedure SpriteBuildLine()
+  Protected s.i, x.i, k.i, v.i, a.i, b.i, a2.i, b2.i, attached.i, pair.i
+  DispSpr = 0
+  For s = 0 To 7
+    If SprArmed(s)
+      DispSpr = 1
+    EndIf
+  Next
+  If DispSpr = 0
+    ProcedureReturn
+  EndIf
+  MemClear(@SprLine(0), 544)
+  ; draw from sprite 7 down so lower-numbered sprites end on top
+  s = 7
+  While s >= 0
+    If SprArmed(s)
+      x = ((SprPos(s) & $FF) << 1) | (SprCtl(s) & 1)
+      x = x + 1
+      pair = s >> 1
+      attached = 0
+      If (s & 1) And (SprCtl(s) & $80) And SprArmed(s - 1)
+        attached = 1
+      EndIf
+      If (s & 1) = 0 And s < 7
+        If (SprCtl(s + 1) & $80) And SprArmed(s + 1)
+          ; the even sprite of an attached pair is drawn with the odd one
+          s = s - 1
+          Continue
+        EndIf
+      EndIf
+      a = SprDatA(s)
+      b = SprDatB(s)
+      If attached
+        a2 = SprDatA(s - 1)
+        b2 = SprDatB(s - 1)
+      EndIf
+      For k = 0 To 15
+        If attached
+          v = ((a2 >> (15 - k)) & 1) | (((b2 >> (15 - k)) & 1) << 1) | (((a >> (15 - k)) & 1) << 2) | (((b >> (15 - k)) & 1) << 3)
+          If v
+            If x + k < 512
+              PokeA(@SprLine(0) + x + k, (16 + v) | (pair << 5))
+            EndIf
+          EndIf
+        Else
+          v = ((a >> (15 - k)) & 1) | (((b >> (15 - k)) & 1) << 1)
+          If v
+            If x + k < 512
+              PokeA(@SprLine(0) + x + k, (16 + (pair << 2) + v) | (pair << 5))
+            EndIf
+          EndIf
+        EndIf
+      Next
+    EndIf
+    s = s - 1
+  Wend
+EndProcedure
+
+; Start of a line: decide what this line fetches and shows.
+Procedure DispBeginLine()
+  DispPos = 0
+  DispFetched = 0
+  DispPixels = 0
+  DiwDecode()
+  If VPos = DiwVStart
+    DiwVOn = 1
+  EndIf
+  If VPos = DiwVStop
+    DiwVOn = 0
+  EndIf
+  DispVOpen = DiwVOn
+  DispHam = Color(0)
+  SpriteDmaLine()
+  SpriteBuildLine()
+EndProcedure
+
+; Fetch this line's bitplane words and lay them out as colour indexes.
+Procedure DispFetch()
+  Protected p.i, k.i, n.i, words.i, ddf0.i, ddf1.i, pt.i, w.i, delay.i, pos.i, bit.i, m.i, dst.i
+  DispFetched = 1
+  DispPixels = 0
+  DispHires = Bool(BplCon0 & $8000)
+  DispPlanes = (BplCon0 >> 12) & 7
+  If DispPlanes > 6
+    DispPlanes = 6
+  EndIf
+  If DispHires And DispPlanes > 4
+    DispPlanes = 4
+  EndIf
+  DispDma = Bool((DmaCon & (#DMA_EN | #DMA_BPL)) = (#DMA_EN | #DMA_BPL))
+  If DispVOpen = 0 Or DispDma = 0 Or DispPlanes = 0
+    ProcedureReturn
+  EndIf
+  ddf0 = DdfStrt & $FC
+  ddf1 = DdfStop & $FC
+  If ddf0 < $18
+    ddf0 = $18
+  EndIf
+  If ddf1 > $D8
+    ddf1 = $D8
+  EndIf
+  If ddf1 < ddf0
+    ProcedureReturn
+  EndIf
+  words = ((ddf1 - ddf0) >> 3) + 1
+  If DispHires
+    words = words * 2
+    DispFirst = ddf0 * 2 + 9
+  Else
+    DispFirst = ddf0 * 2 + 17
+  EndIf
+  If words > #DISP_WORDS - 2
+    words = #DISP_WORDS - 2
+  EndIf
+  DispPixels = words * 16 + 16
+  MemClear(@LineIdx(0), (DispPixels + 32) & ~3)
+  For p = 0 To DispPlanes - 1
+    pt = BplPt(p)
+    If p & 1
+      m = Bpl2Mod
+      delay = (BplCon1 >> 4) & 15
+    Else
+      m = Bpl1Mod
+      delay = BplCon1 & 15
+    EndIf
+    If DispHires
+      delay = delay * 2
+    EndIf
+    bit = 1 << p
+    pos = delay
+    For k = 0 To words - 1
+      w = ChipRd(pt + k * 2)
+      If w
+        dst = pos
+        n = 15
+        While n >= 0
+          If (w >> n) & 1
+            PokeA(@LineIdx(0) + dst, PeekA(@LineIdx(0) + dst) | bit)
+          EndIf
+          dst = dst + 1
+          n = n - 1
+        Wend
+      EndIf
+      pos = pos + 16
+    Next
+    BplPt(p) = (pt + words * 2 + Sx16(m)) & ChipMask
+  Next
+EndProcedure
+
+; The 12-bit colour of playfield index idx under the current modes.
+Procedure.i DispColor(idx.i)
+  Protected c.i, ctl.i
+  If DispHam
+    ctl = (idx >> 4) & 3
+    If ctl = 0
+      DispHam = Color(idx & 15)
+    ElseIf ctl = 1
+      DispHam = (DispHam & $FF0) | (idx & 15)
+    ElseIf ctl = 2
+      DispHam = (DispHam & $0FF) | ((idx & 15) << 8)
+    Else
+      DispHam = (DispHam & $F0F) | ((idx & 15) << 4)
+    EndIf
+    ProcedureReturn DispHam
+  EndIf
+  If idx >= 32
+    c = Color(idx & 31)
+    ProcedureReturn (c >> 1) & $777
+  EndIf
+  ProcedureReturn Color(idx)
+EndProcedure
+
+; Draw the output from DispPos up to (not including) hires pixel x1.
+Procedure DispDraw(x1.i)
+  Protected xh.i, xl.i, o.i, idx.i, c.i, sp.i, pf1.i, pf2.i, inside.i, ham.i, dpf.i, pri.i
+  Protected planes.i, pfidx.i, front.i, ehb.i, pairpri1.i, pairpri2.i, pf2pri.i
+  If x1 > #AM_OUT_W
+    x1 = #AM_OUT_W
+  EndIf
+  If DispPos >= x1
+    ProcedureReturn
+  EndIf
+  ham = Bool((BplCon0 & $0800) And DispPlanes >= 5 And DispHires = 0)
+  dpf = Bool(BplCon0 & $0400)
+  planes = DispPlanes
+  ehb = Bool(planes = 6 And ham = 0 And dpf = 0)
+  pairpri1 = BplCon2 & 7
+  pairpri2 = (BplCon2 >> 3) & 7
+  pf2pri = Bool(BplCon2 & $40)
+  If ham = 0
+    DispHam = 0
+  ElseIf DispHam = 0
+    DispHam = Color(0)
+  EndIf
+  For xh = DispPos To x1 - 1
+    xl = #AM_OUT_X0 + (xh >> 1)
+    inside = Bool(DispVOpen And xl >= DiwHStart And xl < DiwHStop)
+    idx = 0
+    If inside And DispPixels
+      If DispHires
+        o = xh + #AM_OUT_X0 * 2 - DispFirst * 2
+      Else
+        o = xl - DispFirst
+      EndIf
+      If o >= 0 And o < DispPixels
+        idx = PeekA(@LineIdx(0) + o)
+      EndIf
+    EndIf
+    sp = 0
+    If DispSpr And inside
+      sp = PeekA(@SprLine(0) + (xl & 511))
+    EndIf
+    If inside = 0
+      c = Color(0)
+    ElseIf dpf
+      pf1 = (idx & 1) | ((idx >> 1) & 2) | ((idx >> 2) & 4)
+      pf2 = ((idx >> 1) & 1) | ((idx >> 2) & 2) | ((idx >> 3) & 4)
+      ; the playfield in front, and its sprite priority code
+      If pf2pri
+        If pf2
+          pfidx = pf2 + 8
+          pri = pairpri2
+        ElseIf pf1
+          pfidx = pf1
+          pri = pairpri1
+        Else
+          pfidx = 0
+          pri = 7
+        EndIf
+      Else
+        If pf1
+          pfidx = pf1
+          pri = pairpri1
+        ElseIf pf2
+          pfidx = pf2 + 8
+          pri = pairpri2
+        Else
+          pfidx = 0
+          pri = 7
+        EndIf
+      EndIf
+      If sp And ((sp >> 5) < pri Or pfidx = 0)
+        c = Color(sp & 31)
+      Else
+        c = Color(pfidx)
+      EndIf
+    Else
+      If ham
+        c = DispColor(idx | 64)
+      ElseIf ehb
+        c = DispColor(idx)
+      Else
+        c = Color(idx & 31)
+      EndIf
+      If sp
+        pri = pairpri2
+        If idx = 0 Or (sp >> 5) < pri
+          c = Color(sp & 31)
+        EndIf
+      EndIf
+    EndIf
+    LineBuf(xh) = c
+  Next
+  DispPos = x1
+EndProcedure
+
+; Draw up to colour clock h of this line (a register is about to change).
+Procedure DispCatchUp(h.i)
+  Protected x.i
+  If DispFetched = 0 And h >= (DdfStrt & $FC)
+    DispFetch()
+  EndIf
+  x = (h * 2 + #DISP_HDELAY - #AM_OUT_X0) * 2
+  If x > 0
+    DispDraw(x)
+  EndIf
+EndProcedure
+
+; End of a line: draw the rest and hand it to the platform.
+Procedure DispEndLine()
+  If DispFetched = 0
+    DispFetch()
+  EndIf
+  DispDraw(#AM_OUT_W)
+  If VPos >= #AM_OUT_Y0 And VPos < #AM_OUT_Y0 + #AM_OUT_H
+    AmigaLineDone(VPos - #AM_OUT_Y0)
+  EndIf
+EndProcedure
