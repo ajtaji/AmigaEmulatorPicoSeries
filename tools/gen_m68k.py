@@ -577,7 +577,7 @@ def generate(target):
     e('Global PBase.i, PStart.i, Budget.i, SrHi.i, USP.i, SSP.i')
     e('Global IplLine.i, Stopped.i, Halted.i, TracePend.i, Ready.i, InitIndex.i')
     e('Global AErr.i, AeAddr.i, AePc.i, AeCode.i, AeBack.i, ExcPc.i, ExcVec.i, ExcCyc.i')
-    e('Global M68kFetching.i, M68kCycles.i')
+    e('Global M68kFetching.i, M68kCycles.i, M68kLastVec.i, M68kExceptions.i   ; the last exception taken, and how many')
     if not DESKTOP:
         regs = 'PIP = r4, CLeft = r6, FZ = r8, FN = r9, FC = r10, PEnd = r11'
         e(f'ReserveRegister {regs}')

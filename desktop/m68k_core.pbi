@@ -35,7 +35,7 @@ Global PIP.i, PEnd.i, CLeft.i, FZ.i, FN.i, FC.i, FV.i, FX.i
 Global PBase.i, PStart.i, Budget.i, SrHi.i, USP.i, SSP.i
 Global IplLine.i, Stopped.i, Halted.i, TracePend.i, Ready.i, InitIndex.i
 Global AErr.i, AeAddr.i, AePc.i, AeCode.i, AeBack.i, ExcPc.i, ExcVec.i, ExcCyc.i
-Global M68kFetching.i, M68kCycles.i
+Global M68kFetching.i, M68kCycles.i, M68kLastVec.i, M68kExceptions.i   ; the last exception taken, and how many
 
 ; ------------------------------------------------------------ slow memory paths
 ; Any address, any page kind. A word or long at an odd address is an address
@@ -262,6 +262,8 @@ EndProcedure
 ; (Every procedure that moves the PC does it itself: PIP is held in a register.)
 Procedure M68kException(vec.i, pc.i)
   Protected sr.i
+  M68kLastVec = vec
+  M68kExceptions = M68kExceptions + 1
   sr = M68kGetSR()
   M68kSetSuper(1)
   SrHi = SrHi & ~$8000
@@ -276,6 +278,8 @@ EndProcedure
 ; An interrupt of level lv (autovectored, as on the Amiga).
 Procedure M68kInterrupt(lv.i)
   Protected sr.i, pc.i
+  M68kLastVec = 24 + lv
+  M68kExceptions = M68kExceptions + 1
   sr = M68kGetSR()
   M68kSetSuper(1)
   SrHi = (SrHi & ~$8700) | (lv << 8)
@@ -293,6 +297,8 @@ EndProcedure
 ; status word (IR bits 5-15, R/W, I/N, function code) in bits 0-15.
 Procedure M68kAddressError(addr.i, pc.i, code.i)
   Protected sr.i, sp.i
+  M68kLastVec = 3
+  M68kExceptions = M68kExceptions + 1
   AErr = 0
   sr = M68kGetSR()
   M68kSetSuper(1)

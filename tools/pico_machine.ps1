@@ -15,6 +15,8 @@ param(
     [int]$Minutes = 5
 )
 $ErrorActionPreference = 'Stop'
+# the flash regions of each board's wrapper (srcmiga.<board>)
+if ($Board -eq 'feather2350') { $KickOffset = '$040000'; $Df0Offset = '$0C0000' } else { $KickOffset = '$800000'; $Df0Offset = '$880000' }
 $root = Split-Path $PSScriptRoot -Parent
 $pmf = 'C:\Users\ajtaj\Desktop\Github\PureBasicCode\OpenGl Work\ArduinoBasic\PureMetalForge.exe'
 . (Join-Path $PSScriptRoot 'lease_turn.ps1')
@@ -44,10 +46,10 @@ $lease = Get-AmigaPort $Port 'amiga-machine' $Minutes
 "lease taken $(Get-Date -Format T): $($lease.Tag)"
 try {
     if ($Rom) {
-        Forge ('--storage-write "' + (Join-Path $build 'kick.bin') + '" --offset $200000 --port ' + $Port) (Join-Path $build 'pm_kick.log')
+        Forge ('--storage-write "' + (Join-Path $build 'kick.bin') + '" --offset ' + $KickOffset + ' --port ' + $Port) (Join-Path $build 'pm_kick.log')
     }
     if ($Adf) {
-        Forge ('--storage-write "' + (Join-Path $build 'df0.bin') + '" --offset $280000 --port ' + $Port) (Join-Path $build 'pm_df0.log')
+        Forge ('--storage-write "' + (Join-Path $build 'df0.bin') + '" --offset ' + $Df0Offset + ' --port ' + $Port) (Join-Path $build 'pm_df0.log')
     }
     Forge ('--compile "' + $src + '" -o "' + $uf2 + '" --port ' + $Port) (Join-Path $build 'pm_upload.log')
     $args2 = @('--port', $Port, '--seconds', $Seconds)

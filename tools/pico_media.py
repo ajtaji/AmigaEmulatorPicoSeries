@@ -5,8 +5,11 @@
 
 then write them with the compiler's own uploader:
 
-    PureMetalForge.exe --storage-write out.bin --offset $200000 --port COMn   (kickstart)
-    PureMetalForge.exe --storage-write out.bin --offset $280000 --port COMn   (df0)
+    PureMetalForge.exe --storage-write out.bin --offset <KICK> --port COMn   (kickstart)
+    PureMetalForge.exe --storage-write out.bin --offset <DF0> --port COMn    (df0)
+
+with the offsets of the board's wrapper: Feather RP2350 $040000 / $0C0000,
+Pico Plus 2 W $800000 / $880000 (clear of the PDP-11's packs and stores).
 
 A 256 KB Kickstart is written twice (the Amiga sees it twice, at $F80000 and
 $FC0000). The 68000 core keeps the guest's 16-bit words in host (little-endian)
@@ -27,12 +30,12 @@ def main():
         swapped[0::2] = data[1::2]
         swapped[1::2] = data[0::2]
         open(dst, 'wb').write(swapped)
-        print(f'{dst}: {len(swapped)} bytes, write at offset $200000')
+        print(f'{dst}: {len(swapped)} bytes')
     elif kind == 'adf':
         if len(data) != 901120:
             raise SystemExit(f'{src} is {len(data)} bytes: an .ADF (double density) is 901120 bytes')
         open(dst, 'wb').write(data)
-        print(f'{dst}: {len(data)} bytes, write at offset $280000')
+        print(f'{dst}: {len(data)} bytes')
     else:
         raise SystemExit('kind is kick or adf')
 

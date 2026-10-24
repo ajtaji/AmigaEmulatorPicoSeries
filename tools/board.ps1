@@ -1,7 +1,5 @@
 # Board work on a shared board under ONE lease, held only while the jobs run.
-# The lease follows C:\PMFBuild\board-leases\lease.ps1 (the shared protocol:
-# a ticket in queue\<Port>, the oldest live ticket takes the board, the lease
-# file written in one call and released by rename-then-delete by its owner).
+# The lease is taken and given back only through C:\PMFBuild\board-leases\lease.ps1.
 #
 #   powershell -File tools\board.ps1 -Port COM7 -Jobs 'flash Diagnostics/x.picow Diagnostics/build/x.uf2 10',
 #                                     'vectors Diagnostics/vectors.picow Diagnostics/build/vectors.uf2 --only ADD'

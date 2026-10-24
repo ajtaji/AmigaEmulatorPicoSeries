@@ -19,8 +19,7 @@
 ; moves the mouse.
 EnableExplicit
 
-#KICK_OFFSET = $200000
-#DF0_OFFSET = $280000
+; #KICK_OFFSET and #DF0_OFFSET come from the board's wrapper (clear of what else lives in its flash)
 FlashRegion "kickstart", #KICK_OFFSET, $80000, "raw"
 FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
 

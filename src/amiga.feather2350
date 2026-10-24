@@ -8,4 +8,6 @@ XIncludeFile "RP2350/Lib/uart.pico2"
 XIncludeFile "RP2350/Lib/usb_serial.pico2"
 XIncludeFile "RP2350/Lib/safety.pico2"
 XIncludeFile "RP2350/Lib/psram.pico2"
+#KICK_OFFSET = $040000        ; below the PDP-11 packs ($240000 up) and store ($700000)
+#DF0_OFFSET = $0C0000
 XIncludeFile "amiga_pico.pmi"
