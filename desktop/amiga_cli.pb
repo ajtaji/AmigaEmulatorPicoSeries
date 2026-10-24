@@ -8,7 +8,7 @@ XIncludeFile "amiga_host.pbi"
 
 OpenConsole()
 Define k.i, a.s, rom.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
-Define cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s
+Define cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s, n.i, l.i, r.i, zl.i, zr.i, ll.q, rr.q, pl.i, pr.i
 For k = 0 To CountProgramParameters() - 1
   a = ProgramParameter(k)
   If a = "--rom"
@@ -21,6 +21,8 @@ For k = 0 To CountProgramParameters() - 1
     k + 1 : shot = ProgramParameter(k)
   ElseIf a = "--slow"
     k + 1 : slowKb = Val(ProgramParameter(k))
+  ElseIf a = "--stamp"
+    HostSerialStamp = 1
   ElseIf a = "--dump-chip"
     k + 1 : chipFile = ProgramParameter(k)
   ElseIf a = "--dump-track"
@@ -74,6 +76,22 @@ PrintN("frames " + Str(frames) + " in " + Str(t1) + " ms = " + StrF(frames * 100
 PrintN("CPU cycles " + Str(AmigaCpuCycles) + "  PC=" + Hex(M68kGetPC()) + " SR=" + Hex(M68kGetSR()) + " stopped=" + Str(Stopped) + " halted=" + Str(Halted))
 PrintN("DMACON=" + Hex(DmaCon) + " INTENA=" + Hex(IntEna) + " INTREQ=" + Hex(IntReq) + " BPLCON0=" + Hex(BplCon0) + " COP1LC=" + Hex(Cop1Lc) + " copper state " + Str(CopState))
 PrintN("drive 0 track " + Str(DrvTrack(0)) + " motor " + Str(DrvMotor(0)) + " side " + Str(DrvSide))
+; the last second of Paula's output: level and pitch of each side
+PrintN("audio ring: " + Str(AudWr) + " pairs written")
+n = #AUD_RATE
+If AudWr < n : n = AudWr : EndIf
+If n > 0
+  pl = 0 : pr = 0
+  For w = AudWr - n To AudWr - 1
+    l = AudRing((w & (#AUD_RING - 1)) * 2)
+    r = AudRing((w & (#AUD_RING - 1)) * 2 + 1)
+    ll + l * l : rr + r * r
+    If Bool(l >= 0) <> Bool(pl >= 0) : zl + 1 : EndIf
+    If Bool(r >= 0) <> Bool(pr >= 0) : zr + 1 : EndIf
+    pl = l : pr = r
+  Next
+  PrintN("audio: last " + Str(n) + " samples, left rms " + Str(Sqr(ll / n)) + " " + Str(zl * #AUD_RATE / (2 * n)) + " Hz, right rms " + Str(Sqr(rr / n)) + " " + Str(zr * #AUD_RATE / (2 * n)) + " Hz")
+EndIf
 If chipFile <> ""
   ; chip RAM, big-endian as the 68000 sees it
   f = CreateFile(#PB_Any, chipFile)

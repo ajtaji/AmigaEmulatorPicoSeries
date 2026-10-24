@@ -61,7 +61,11 @@ Procedure AmigaLineDone(y.i)
   EndIf
 EndProcedure
 
+Global HostSerialStamp.i       ; 1: each serial line starts with the emulated time in ms
 Procedure AmigaSerial(byte.i)
+  If HostSerialStamp And (HostSerial = "" Or Right(HostSerial, 1) = #LF$) And byte <> 10
+    HostSerial + "[" + Str(FrameCount * 20 + VPos * 20 / 313) + " ms emulated, " + Str(ElapsedMilliseconds()) + " host] "
+  EndIf
   If byte = 10
     HostSerial + #LF$
   ElseIf byte >= 32 Or byte = 13
