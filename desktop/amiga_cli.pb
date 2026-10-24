@@ -8,7 +8,7 @@ XIncludeFile "amiga_host.pbi"
 
 OpenConsole()
 Define k.i, a.s, rom.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
-Define cyc0.i
+Define cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s
 For k = 0 To CountProgramParameters() - 1
   a = ProgramParameter(k)
   If a = "--rom"
@@ -21,6 +21,11 @@ For k = 0 To CountProgramParameters() - 1
     k + 1 : shot = ProgramParameter(k)
   ElseIf a = "--slow"
     k + 1 : slowKb = Val(ProgramParameter(k))
+  ElseIf a = "--dump-chip"
+    k + 1 : chipFile = ProgramParameter(k)
+  ElseIf a = "--dump-track"
+    k + 1 : dumpTrack = Val(ProgramParameter(k))
+    k + 1 : dumpFile = ProgramParameter(k)
   EndIf
 Next
 If rom = ""
@@ -39,6 +44,20 @@ If adf <> ""
     End 2
   EndIf
 EndIf
+If dumpTrack >= 0
+  ; the MFM words DF0 would read for track dumpTrack (cylinder * 2 + side), big-endian
+  DrvTrack(0) = dumpTrack >> 1
+  DrvSide = dumpTrack & 1
+  TrackBuild(0)
+  f = CreateFile(#PB_Any, dumpFile)
+  For w = 0 To #TRACK_WORDS - 1
+    WriteByte(f, TrackBuf(w) >> 8)
+    WriteByte(f, TrackBuf(w) & 255)
+  Next
+  CloseFile(f)
+  PrintN("track " + Str(dumpTrack) + ": " + Str(#TRACK_WORDS) + " words in " + dumpFile)
+  End 0
+EndIf
 t0 = ElapsedMilliseconds()
 For f = 1 To frames
   AmigaRunFrame()
@@ -55,6 +74,15 @@ PrintN("frames " + Str(frames) + " in " + Str(t1) + " ms = " + StrF(frames * 100
 PrintN("CPU cycles " + Str(AmigaCpuCycles) + "  PC=" + Hex(M68kGetPC()) + " SR=" + Hex(M68kGetSR()) + " stopped=" + Str(Stopped) + " halted=" + Str(Halted))
 PrintN("DMACON=" + Hex(DmaCon) + " INTENA=" + Hex(IntEna) + " INTREQ=" + Hex(IntReq) + " BPLCON0=" + Hex(BplCon0) + " COP1LC=" + Hex(Cop1Lc) + " copper state " + Str(CopState))
 PrintN("drive 0 track " + Str(DrvTrack(0)) + " motor " + Str(DrvMotor(0)) + " side " + Str(DrvSide))
+If chipFile <> ""
+  ; chip RAM, big-endian as the 68000 sees it
+  f = CreateFile(#PB_Any, chipFile)
+  For w = 0 To $7FFFE Step 2
+    WriteByte(f, PeekA(ChipHost + w + 1))
+    WriteByte(f, PeekA(ChipHost + w))
+  Next
+  CloseFile(f)
+EndIf
 If shot <> ""
   If HostSavePng(shot)
     PrintN("picture: " + shot)
