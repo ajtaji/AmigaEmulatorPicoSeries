@@ -235,8 +235,20 @@ $F80000) needs none. The desktop takes that pair now:
 amiga_cli --rom aros-rom.bin --ext aros-ext.bin
 ```
 
-A single 1 MB file passed to `--rom` is split as extended ROM then ROM. The
-images themselves are not here yet.
+A single 1 MB file passed to `--rom` is split as extended ROM then ROM.
+
+The pair from AROS's 2026-10-23 boot ISO goes where its residents say:
+`aros-rom.bin` at $F80000 (43 resident tags point at themselves there) and
+`aros-ext.bin` at $E00000 (31). On the desktop, AROS boots:
+
+- No disk: its boot screen, the cat's eyes and logo, AROS's insert-disk
+  screen (`docs/aros_desktop_noboot.png`).
+- With its boot floppy, `bootdisk-amiga-m68k.adf`, in DF0: the AROS shell
+  window (version b8f4b11c34, built 2026-10-23), which then asks for the
+  "AROS Live CD" volume. This A500 has no CD drive, and the floppy is meant to
+  go with the ISO (`docs/aros_desktop_floppy.png`).
+
+The images live in `C:\PMFBuildoms-private`, never in git.
 
 Kickstart and commercial disks are copyrighted: none are in this repository
 (`.gitignore` refuses `*.rom`, `*.adf`; the one exception is our own

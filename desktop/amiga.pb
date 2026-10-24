@@ -381,7 +381,7 @@ EndProcedure
 
 ; ---------------------------------------------------------------- main
 Procedure Main()
-  Protected ev.i, k.i, et.i, rom.s, adf.s, df1.s, a.s
+  Protected ev.i, k.i, et.i, rom.s, ext.s, adf.s, df1.s, a.s
   UiScale = DesktopResolutionX() : If UiScale < 1 : UiScale = 1 : EndIf
   Gl = OpenGLWindow("Amiga 500 (PureMetal)", 1500, 860, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
   If Gl = 0 : MessageRequester("Amiga", "OpenGL could not be started.") : End 1 : EndIf
@@ -395,6 +395,7 @@ Procedure Main()
   For k = 0 To CountProgramParameters() - 1
     a = LCase(ProgramParameter(k))
     If a = "--rom" : k + 1 : rom = ProgramParameter(k)
+    ElseIf a = "--ext" : k + 1 : ext = ProgramParameter(k)
     ElseIf a = "--adf" : k + 1 : adf = ProgramParameter(k)
     ElseIf a = "--df1" : k + 1 : df1 = ProgramParameter(k)
     ElseIf a = "--mute" : SoundMuted = 1
@@ -407,6 +408,9 @@ Procedure Main()
   If rom <> ""
     If HostLoadRom(rom) = 0 : StatusLine = HostError : EndIf
     ViewRomPath = rom
+    If ext <> ""
+      If HostLoadExt(ext) = 0 : StatusLine = HostError : EndIf
+    EndIf
   EndIf
   MachinePower()
   If adf <> "" : HostInsert(0, adf) : ViewAdfRefresh(GetPathPart(adf)) : EndIf
