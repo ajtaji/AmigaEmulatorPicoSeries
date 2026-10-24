@@ -94,6 +94,16 @@ Procedure HostInit(slowKb.i)
 EndProcedure
 
 ; A Kickstart image, 256 or 512 KB, big-endian as dumped; kept in host word order.
+; A big-endian ROM image (256 or 512 KB) into the ROM area, in host word order.
+Procedure HostSetRom(*buf, n.i)
+  Protected k.i
+  For k = 0 To n - 2 Step 2
+    PokeA(*HostRom + k, PeekA(*buf + k + 1))
+    PokeA(*HostRom + k + 1, PeekA(*buf + k))
+  Next
+  AmigaRomBytes = n
+EndProcedure
+
 Procedure.i HostLoadRom(path.s)
   Protected f.i, n.i, k.i, *buf
   f = ReadFile(#PB_Any, path)
@@ -110,15 +120,24 @@ Procedure.i HostLoadRom(path.s)
   *buf = AllocateMemory(n)
   ReadData(f, *buf, n)
   CloseFile(f)
-  For k = 0 To n - 2 Step 2
-    PokeA(*HostRom + k, PeekA(*buf + k + 1))
-    PokeA(*HostRom + k + 1, PeekA(*buf + k))
-  Next
+  HostSetRom(*buf, n)
   FreeMemory(*buf)
-  AmigaRomBytes = n
   HostRomName = GetFilePart(path)
   ProcedureReturn 1
 EndProcedure
+
+; The emulator's own boot ROM (bootrom/bootrom.s) in place of a Kickstart:
+; boots a disk's bootblock with a small ExecBase (AllocAbs, DoIO on trackdisk...).
+Procedure HostUseBootRom()
+  HostSetRom(?HostBootRom, ?HostBootRomEnd - ?HostBootRom)
+  HostRomName = "built-in boot ROM"
+EndProcedure
+
+DataSection
+  HostBootRom:
+  IncludeBinary #PB_Compiler_FilePath + "../bootrom/bootrom.rom"
+  HostBootRomEnd:
+EndDataSection
 
 ; Put an .ADF (901120 bytes, DD) in drive d.
 Procedure.i HostLoadAdf(d.i, path.s)

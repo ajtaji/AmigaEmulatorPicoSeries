@@ -127,16 +127,16 @@ EndProcedure
 
 ; ---------------------------------------------------------------- the machine
 Procedure MachinePower()
-  AmigaReset()
-  If HostAdfName0 = "" And *HostAdf0
-    ; nothing
+  If HostRomName = "" Or HostRomName = "built-in boot ROM"
+    ; no Kickstart: the emulator's own boot ROM starts DF0's bootblock
+    HostUseBootRom()
   EndIf
+  AmigaReset()
   Paused = 0
   EmuAccum = 0
   EmuLastUs = HostUs()
-  If HostRomName = ""
-    StatusLine = "No Kickstart: choose one in the Disks tab (or --rom). The machine waits."
-    Paused = 1
+  If HostRomName = "built-in boot ROM"
+    StatusLine = "No Kickstart: the built-in boot ROM boots DF0's bootblock. Kickstart... for anything else."
   Else
     StatusLine = "Kickstart " + HostRomName
   EndIf
@@ -158,6 +158,9 @@ Procedure HostInsert(d.i, path.s)
   If HostLoadAdf(d, path) = 0
     StatusLine = HostError
   Else
+    If d = 0 And HostRomName = "built-in boot ROM"
+      MachinePower()    ; the boot ROM reads DF0 once, at reset
+    EndIf
     StatusLine = "DF" + Str(d) + ": " + GetFilePart(path)
   EndIf
 EndProcedure

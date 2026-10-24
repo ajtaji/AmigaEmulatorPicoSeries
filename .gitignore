@@ -22,3 +22,5 @@ desktop/*.build.log
 roms/
 private/
 __pycache__/
+# our own boot ROM (bootrom/bootrom.s), embedded by the desktop build
+!bootrom/bootrom.rom

@@ -1,6 +1,8 @@
 ; Console run of the Amiga: no window.
 ;   amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png]
-;             [--slow KB] [--trace]
+;             [--slow KB] [--stamp] [--dump-chip file] [--dump-track N file]
+;   amiga_cli --boot <disk> [...]  no Kickstart: the built-in boot ROM starts
+;             the disk's bootblock (bootrom/bootrom.s)
 ; Runs N frames (default 250, five seconds of PAL), prints what the machine
 ; sent on its serial port, the frame rate reached and where the CPU is, and
 ; saves the last picture.
@@ -13,6 +15,9 @@ For k = 0 To CountProgramParameters() - 1
   a = ProgramParameter(k)
   If a = "--rom"
     k + 1 : rom = ProgramParameter(k)
+  ElseIf a = "--boot"
+    k + 1 : adf = ProgramParameter(k) : rom = "*boot"
+
   ElseIf a = "--adf"
     k + 1 : adf = ProgramParameter(k)
   ElseIf a = "--frames"
@@ -32,10 +37,13 @@ For k = 0 To CountProgramParameters() - 1
 Next
 If rom = ""
   PrintN("usage: amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png] [--slow KB]")
+  PrintN("       amiga_cli --boot <disk.adf> [...]   (no Kickstart: the built-in boot ROM)")
   End 2
 EndIf
 HostInit(slowKb)
-If HostLoadRom(rom) = 0
+If rom = "*boot"
+  HostUseBootRom()
+ElseIf HostLoadRom(rom) = 0
   PrintN(HostError)
   End 2
 EndIf
