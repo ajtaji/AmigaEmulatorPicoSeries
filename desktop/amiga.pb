@@ -80,9 +80,12 @@ Procedure KeyMapInit()
   KeyMap(#PB_Shortcut_Left) = $4F
   For i = 0 To 9 : KeyMap(#PB_Shortcut_F1 + i) = $50 + i : Next
   KeyMap(#PB_Shortcut_Insert) = $5F                 ; Help
-  KeyMap(#PB_Shortcut_Shift) = $60
+  ; Shift and Ctrl are the key codes 16 and 17: #PB_Shortcut_Shift ($10000) and
+  ; #PB_Shortcut_Control ($20000) are modifier FLAGS, and as indexes they wrote
+  ; far past this array - a random crash at start-up, whichever heap block lay there
+  KeyMap(16) = $60                                  ; Shift
   KeyMap(#PB_Shortcut_Capital) = $62
-  KeyMap(#PB_Shortcut_Control) = $63
+  KeyMap(17) = $63                                  ; Ctrl
   KeyMap(#PB_Shortcut_Menu) = $64                   ; Alt
   KeyMap(#PB_Shortcut_LeftWindows) = $66
   KeyMap(#PB_Shortcut_RightWindows) = $67
