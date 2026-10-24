@@ -19,6 +19,11 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
 
+# build every image first, so the board is held only for the upload and the run
+foreach ($job in $Jobs) {
+    $w = $job -split '\s+'
+    & (Join-Path $PSScriptRoot 'build.ps1') -Source $w[1] -Output $w[2] | Out-Null
+}
 $lease = Get-AmigaPort $Port 'amiga-68000' $Minutes
 "lease taken $(Get-Date -Format T): $($lease.Tag)"
 try {
