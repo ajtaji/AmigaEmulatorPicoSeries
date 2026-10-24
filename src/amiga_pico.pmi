@@ -199,6 +199,8 @@ Procedure Main()
       Eol()
     EndIf
     FrameSum = 0
+    ; the picture is drawn only for a picture asked for and one frame in ten (the checksum)
+    DispDrawOn = Bool(ShotNow Or (FrameCount % 10) = 0)
     AmigaRunFrame()
     LastFrameSum = FrameSum
     If ShotNow

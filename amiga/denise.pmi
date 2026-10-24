@@ -26,6 +26,7 @@ Global DispPos.i                                 ; next output hires pixel to dr
 Global DispFetched.i, DispFirst.i, DispPixels.i, DispHires.i, DispPlanes.i, DispDma.i
 Global DispVOpen.i, DispHam.i, DispSpr.i, DispDiwH0.i, DispDiwH1.i
 Global DiwVStart.i, DiwVStop.i, DiwHStart.i, DiwHStop.i, DiwVOn.i
+Global DispDrawOn.i = 1                          ; 0: the DMA happens, no picture is drawn (a headless board between pictures)
 
 Global Dim DispNib.l(16)                         ; a nibble's four pixels as four bytes, leftmost first
 
@@ -174,7 +175,11 @@ Procedure DispBeginLine()
   DispVOpen = DiwVOn
   DispHam = Color(0)
   SpriteDmaLine()
-  SpriteBuildLine()
+  If DispDrawOn
+    SpriteBuildLine()
+  Else
+    DispSpr = 0
+  EndIf
 EndProcedure
 
 ; Fetch this line's bitplane words and lay them out as colour indexes.
@@ -216,6 +221,17 @@ Procedure DispFetch()
     words = #DISP_WORDS - 2
   EndIf
   DispPixels = words * 16 + 16
+  If DispDrawOn = 0
+    For p = 0 To DispPlanes - 1
+      If p & 1
+        m = Bpl2Mod
+      Else
+        m = Bpl1Mod
+      EndIf
+      BplPt(p) = (BplPt(p) + words * 2 + Sx16(m)) & ChipMask
+    Next
+    ProcedureReturn
+  EndIf
   MemClear(@LineIdx(0), (DispPixels + 32) & ~3)
   For p = 0 To DispPlanes - 1
     pt = BplPt(p)
@@ -439,6 +455,9 @@ Procedure DispCatchUp(h.i)
   If DispFetched = 0 And h >= (DdfStrt & $FC)
     DispFetch()
   EndIf
+  If DispDrawOn = 0
+    ProcedureReturn
+  EndIf
   x = (h * 2 + #DISP_HDELAY - #AM_OUT_X0) * 2
   If x > 0
     DispDraw(x)
@@ -449,6 +468,9 @@ EndProcedure
 Procedure DispEndLine()
   If DispFetched = 0
     DispFetch()
+  EndIf
+  If DispDrawOn = 0
+    ProcedureReturn
   EndIf
   DispDraw(#AM_OUT_W)
   If VPos >= #AM_OUT_Y0 And VPos < #AM_OUT_Y0 + #AM_OUT_H
