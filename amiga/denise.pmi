@@ -27,7 +27,16 @@ Global DispFetched.i, DispFirst.i, DispPixels.i, DispHires.i, DispPlanes.i, Disp
 Global DispVOpen.i, DispHam.i, DispSpr.i, DispDiwH0.i, DispDiwH1.i
 Global DiwVStart.i, DiwVStop.i, DiwHStart.i, DiwHStop.i, DiwVOn.i
 
+Global Dim DispNib.l(16)                         ; a nibble's four pixels as four bytes, leftmost first
+
 Declare AmigaLineDone(y.i)
+
+Procedure DispInit()
+  Protected v.i
+  For v = 0 To 15
+    DispNib(v) = ((v >> 3) & 1) | (((v >> 2) & 1) << 8) | (((v >> 1) & 1) << 16) | ((v & 1) << 24)
+  Next
+EndProcedure
 
 Procedure DiwDecode()
   DiwVStart = (DiwStrt >> 8) & $FF
@@ -220,25 +229,87 @@ Procedure DispFetch()
     If DispHires
       delay = delay * 2
     EndIf
-    bit = 1 << p
     pos = delay
     For k = 0 To words - 1
       w = ChipRd(pt + k * 2)
       If w
-        dst = pos
-        n = 15
-        While n >= 0
-          If (w >> n) & 1
-            PokeA(@LineIdx(0) + dst, PeekA(@LineIdx(0) + dst) | bit)
-          EndIf
-          dst = dst + 1
-          n = n - 1
-        Wend
+        ; four pixels at a time: a nibble of the word becomes four index bytes
+        ; (unaligned 32-bit access: the RP2350 and the PC allow it)
+        dst = @LineIdx(0) + pos
+        bit = DispNib((w >> 12) & 15) << p
+        PokeL(dst, PeekL(dst) | bit)
+        bit = DispNib((w >> 8) & 15) << p
+        PokeL(dst + 4, PeekL(dst + 4) | bit)
+        bit = DispNib((w >> 4) & 15) << p
+        PokeL(dst + 8, PeekL(dst + 8) | bit)
+        bit = DispNib(w & 15) << p
+        PokeL(dst + 12, PeekL(dst + 12) | bit)
       EndIf
       pos = pos + 16
     Next
     BplPt(p) = (pt + words * 2 + Sx16(m)) & ChipMask
   Next
+EndProcedure
+
+; Fill output pixels [a, b) with colour c.
+Procedure DispFill(a.i, b.i, c.i)
+  While a < b
+    LineBuf(a) = c
+    a = a + 1
+  Wend
+EndProcedure
+
+; DispDraw for a line with no sprites, HAM, EHB or dual playfield: border,
+; playfield, border, in spans.
+Procedure DispDrawPlain(x1.i)
+  Protected xs.i, xe.i, ds.i, de.i, xh.i, o.i, c0.i, base.i
+  c0 = Color(0)
+  If DispVOpen = 0 Or DispPixels = 0
+    DispFill(DispPos, x1, c0)
+    DispPos = x1
+    ProcedureReturn
+  EndIf
+  xs = (DiwHStart - #AM_OUT_X0) * 2
+  xe = (DiwHStop - #AM_OUT_X0) * 2
+  If DispHires
+    ds = DispFirst * 2 - #AM_OUT_X0 * 2
+    de = ds + DispPixels
+  Else
+    ds = (DispFirst - #AM_OUT_X0) * 2
+    de = ds + DispPixels * 2
+  EndIf
+  ; the playfield shows where the window and the fetched data overlap
+  If ds < xs
+    ds = xs
+  EndIf
+  If de > xe
+    de = xe
+  EndIf
+  If ds < DispPos
+    ds = DispPos
+  EndIf
+  If de > x1
+    de = x1
+  EndIf
+  If ds >= de
+    DispFill(DispPos, x1, c0)
+    DispPos = x1
+    ProcedureReturn
+  EndIf
+  DispFill(DispPos, ds, c0)
+  If DispHires
+    base = @LineIdx(0) + #AM_OUT_X0 * 2 - DispFirst * 2
+    For xh = ds To de - 1
+      LineBuf(xh) = Color(PeekA(base + xh) & 31)
+    Next
+  Else
+    base = @LineIdx(0) + #AM_OUT_X0 - DispFirst
+    For xh = ds To de - 1
+      LineBuf(xh) = Color(PeekA(base + (xh >> 1)) & 31)
+    Next
+  EndIf
+  DispFill(de, x1, c0)
+  DispPos = x1
 EndProcedure
 
 ; The 12-bit colour of playfield index idx under the current modes.
@@ -285,6 +356,10 @@ Procedure DispDraw(x1.i)
     DispHam = 0
   ElseIf DispHam = 0
     DispHam = Color(0)
+  EndIf
+  If DispSpr = 0 And ham = 0 And dpf = 0 And ehb = 0
+    DispDrawPlain(x1)
+    ProcedureReturn
   EndIf
   For xh = DispPos To x1 - 1
     xl = #AM_OUT_X0 + (xh >> 1)

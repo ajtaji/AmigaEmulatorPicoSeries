@@ -497,6 +497,7 @@ Procedure AmigaReset()
     SprArmed(k) = 0
     SprState(k) = 3
   Next
+  DispInit()
   CiaReset()
   AudioReset()
   DriveReset()
