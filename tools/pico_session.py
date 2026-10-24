@@ -33,7 +33,15 @@ def main():
     ap.add_argument('--dump-frame', type=int, default=400)
     a = ap.parse_args()
     log = open(a.log, 'a', encoding='utf-8') if a.log else None
-    port = serial.Serial(a.port, 115200, timeout=0.1)
+    # after an upload the board takes a moment to come back on USB: wait for the port
+    port, t_open = None, time.time()
+    while port is None:
+        try:
+            port = serial.Serial(a.port, 115200, timeout=0.1)
+        except serial.SerialException:
+            if time.time() - t_open > 15:
+                raise
+            time.sleep(0.3)
     port.dtr = True
     t0 = time.time()
     buf = b''
@@ -41,6 +49,8 @@ def main():
     keys_sent = False
     rows = None
     chip = None
+    aud = None
+    aud_wr = 0
     dump_sent = False
     prof_sent = False
     while time.time() - t0 < a.seconds:
@@ -78,6 +88,18 @@ def main():
                 open(a.dump, 'wb').write(chip)
                 print(f'chip RAM: {a.dump} ({len(chip)} bytes)')
                 chip = None
+                continue
+            if s.startswith('AUD wr='):
+                aud = bytearray()
+                aud_wr = int(s[7:])
+                continue
+            if s == 'AEND' and aud is not None:
+                open(a.dump + '.aud', 'wb').write(aud_wr.to_bytes(4, 'little') + bytes(aud))
+                print(f'audio ring: {a.dump}.aud (wr={aud_wr})')
+                aud = None
+                continue
+            if aud is not None and s.startswith('A'):
+                aud += bytes.fromhex(s[1:])
                 continue
             if chip is not None and s.startswith('C'):
                 chip += bytes.fromhex(s[1:])

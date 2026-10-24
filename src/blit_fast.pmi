@@ -1,0 +1,426 @@
+; The blitter's area mode in Thumb assembly (RP2350), for blits without fill:
+; amiga/blitter.pmi's BlitArea hands them here when #AM_BLIT_ASM = 1. The
+; PureMetal loop costs about 284 host cycles a word (measured: 2,682 words a
+; frame of the PureMetal demo in 5.1 ms); this one does the same words, in the
+; same order, with the same results - proven by the demo's chip RAM matching
+; the PC's byte for byte.
+;
+; The row loop works from BlitK, a block of longs (offsets in bytes):
+;   0 A ptr   4 B ptr   8 C ptr  12 D ptr  16 step (2 or -2)
+;  20 A old  24 B old  28 A dat  32 B dat  36 C dat
+;  40 flags: 1 A, 2 B, 4 C, 8 D, 16 descending
+;  44 A shift (right; 16 - ASH when descending)  48 B shift
+;  52 first word mask  56 last word mask
+;  60 m7 64 m6 68 m5 72 m4 76 m3 80 m2 84 m1 88 m0 (the minterm as masks)
+;  92 zero: the OR of every D word   96 words a row   100 ChipMask
+; 104 D dat  108 a (shifted)  112 b (shifted)  116 the word index  120 a spare
+; Registers: r3 = BlitK, r5 = the word index; r0-r2 scratch. r4 and r6-r11
+; belong to the 68000 core and are not touched.
+
+Global Dim BlitK.l(32)
+
+Procedure BlitRowAsm()
+  ASM
+    ldr r3, =global_blitk
+    movs r5, #0
+  blk_word:
+    str r5, [r3, #116]
+    ; ---- A: fetch, first/last word masks, shift
+    ldr r0, [r3, #40]
+    movs r1, #1
+    tst r0, r1
+    beq blk_noa
+    ldr r1, [r3, #0]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r0, =global_chipbase
+    ldr r2, [r0, r2]
+    adds r2, r2, r1
+    ldrh r2, [r2]
+    str r2, [r3, #28]
+    ldr r1, [r3, #0]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #0]
+  blk_noa:
+    ldr r0, [r3, #28]
+    cmp r5, #0
+    bne blk_notfirst
+    ldr r1, [r3, #52]
+    ands r0, r1
+  blk_notfirst:
+    ldr r1, [r3, #96]
+    subs r1, #1
+    cmp r5, r1
+    bne blk_notlast
+    ldr r1, [r3, #56]
+    ands r0, r1
+  blk_notlast:
+    ldr r2, [r3, #40]
+    movs r1, #16
+    tst r2, r1
+    bne blk_adesc
+    ldr r1, [r3, #20]
+    lsls r1, r1, #16
+    orrs r1, r0
+    b blk_ash
+  blk_adesc:
+    lsls r1, r0, #16
+    ldr r2, [r3, #20]
+    orrs r1, r2
+  blk_ash:
+    str r0, [r3, #20]
+    ldr r2, [r3, #44]
+    lsrs r1, r2
+    uxth r1, r1
+    str r1, [r3, #108]
+    ; ---- B: fetch, shift
+    ldr r0, [r3, #40]
+    movs r1, #2
+    tst r0, r1
+    beq blk_nob
+    ldr r1, [r3, #4]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r0, =global_chipbase
+    ldr r2, [r0, r2]
+    adds r2, r2, r1
+    ldrh r2, [r2]
+    str r2, [r3, #32]
+    ldr r1, [r3, #4]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #4]
+  blk_nob:
+    ldr r0, [r3, #32]
+    ldr r2, [r3, #40]
+    movs r1, #16
+    tst r2, r1
+    bne blk_bdesc
+    ldr r1, [r3, #24]
+    lsls r1, r1, #16
+    orrs r1, r0
+    b blk_bsh
+  blk_bdesc:
+    lsls r1, r0, #16
+    ldr r2, [r3, #24]
+    orrs r1, r2
+  blk_bsh:
+    str r0, [r3, #24]
+    ldr r2, [r3, #48]
+    lsrs r1, r2
+    uxth r1, r1
+    str r1, [r3, #112]
+    ; ---- C: fetch
+    ldr r0, [r3, #40]
+    movs r1, #4
+    tst r0, r1
+    beq blk_noc
+    ldr r1, [r3, #8]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r0, =global_chipbase
+    ldr r2, [r0, r2]
+    adds r2, r2, r1
+    ldrh r2, [r2]
+    str r2, [r3, #36]
+    ldr r1, [r3, #8]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #8]
+  blk_noc:
+    ; ---- the minterm: d = a ? (b ? t1 : t2) : (b ? t3 : t4), per bit,
+    ; t1 = c ? m7 : m6, t2 = c ? m5 : m4, t3 = c ? m3 : m2, t4 = c ? m1 : m0
+    ldr r2, [r3, #36]
+    ldr r5, [r3, #60]
+    ands r5, r2
+    mvns r1, r2
+    ldr r0, [r3, #64]
+    ands r0, r1
+    orrs r5, r0
+    str r5, [r3, #120]
+    ldr r0, [r3, #68]
+    ands r0, r2
+    ldr r5, [r3, #72]
+    ands r5, r1
+    orrs r0, r5
+    ldr r5, [r3, #112]
+    bics r0, r5
+    ldr r1, [r3, #120]
+    ands r1, r5
+    orrs r0, r1
+    str r0, [r3, #120]
+    mvns r1, r2
+    ldr r0, [r3, #76]
+    ands r0, r2
+    ldr r5, [r3, #80]
+    ands r5, r1
+    orrs r0, r5
+    ldr r5, [r3, #84]
+    ands r5, r2
+    mov r12, r0
+    ldr r0, [r3, #88]
+    ands r0, r1
+    orrs r5, r0
+    ldr r1, [r3, #112]
+    bics r5, r1
+    mov r0, r12
+    ands r0, r1
+    orrs r5, r0
+    ldr r1, [r3, #108]
+    bics r5, r1
+    ldr r0, [r3, #120]
+    ands r0, r1
+    orrs r0, r5
+    uxth r0, r0
+    ; ---- D: the result, the zero flag, the store
+    str r0, [r3, #104]
+    ldr r1, [r3, #92]
+    orrs r1, r0
+    str r1, [r3, #92]
+    ldr r2, [r3, #40]
+    movs r1, #8
+    tst r2, r1
+    beq blk_nod
+    ldr r1, [r3, #12]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r5, =global_chipbase
+    ldr r2, [r5, r2]
+    adds r2, r2, r1
+    strh r0, [r2]
+    ldr r1, [r3, #12]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #12]
+  blk_nod:
+    ldr r5, [r3, #116]
+    adds r5, #1
+    ldr r1, [r3, #96]
+    cmp r5, r1
+    bge blk_done
+    b blk_word
+  blk_done:
+  EndASM
+EndProcedure
+
+; D only, with a minterm that is a constant ($00 clears, $FF sets): a store loop.
+Procedure BlitRowConst()
+  ASM
+    ldr r3, =global_blitk
+    ldr r5, [r3, #96]
+    ldr r0, [r3, #104]
+    ldr r1, [r3, #12]
+    mov r12, r0
+  blc_word:
+    lsrs r2, r1, #1
+    lsls r2, r2, #1
+    lsrs r0, r2, #16
+    lsls r0, r0, #2
+    ldr r3, =global_chipbase
+    ldr r0, [r3, r0]
+    adds r0, r0, r2
+    mov r2, r12
+    strh r2, [r0]
+    ldr r3, =global_blitk
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    subs r5, #1
+    bne blc_word
+    str r1, [r3, #12]
+  EndASM
+EndProcedure
+
+; A to D with the minterm $F0 (D = A): fetch, first/last word masks, shift, store.
+Procedure BlitRowCopyA()
+  ASM
+    ldr r3, =global_blitk
+    movs r5, #0
+  bla_word:
+    str r5, [r3, #116]
+    ldr r1, [r3, #0]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r0, =global_chipbase
+    ldr r2, [r0, r2]
+    adds r2, r2, r1
+    ldrh r0, [r2]
+    str r0, [r3, #28]
+    ldr r1, [r3, #0]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #0]
+    cmp r5, #0
+    bne bla_notfirst
+    ldr r1, [r3, #52]
+    ands r0, r1
+  bla_notfirst:
+    ldr r1, [r3, #96]
+    subs r1, #1
+    cmp r5, r1
+    bne bla_notlast
+    ldr r1, [r3, #56]
+    ands r0, r1
+  bla_notlast:
+    ldr r2, [r3, #40]
+    movs r1, #16
+    tst r2, r1
+    bne bla_desc
+    ldr r1, [r3, #20]
+    lsls r1, r1, #16
+    orrs r1, r0
+    b bla_sh
+  bla_desc:
+    lsls r1, r0, #16
+    ldr r2, [r3, #20]
+    orrs r1, r2
+  bla_sh:
+    str r0, [r3, #20]
+    ldr r2, [r3, #44]
+    lsrs r1, r2
+    uxth r0, r1
+    str r0, [r3, #104]
+    ldr r1, [r3, #92]
+    orrs r1, r0
+    str r1, [r3, #92]
+    ldr r1, [r3, #12]
+    lsrs r1, r1, #1
+    lsls r1, r1, #1
+    lsrs r2, r1, #16
+    lsls r2, r2, #2
+    ldr r5, =global_chipbase
+    ldr r2, [r5, r2]
+    adds r2, r2, r1
+    strh r0, [r2]
+    ldr r1, [r3, #12]
+    ldr r2, [r3, #16]
+    adds r1, r1, r2
+    ldr r2, [r3, #100]
+    ands r1, r2
+    str r1, [r3, #12]
+    ldr r5, [r3, #116]
+    adds r5, #1
+    ldr r1, [r3, #96]
+    cmp r5, r1
+    bge bla_done
+    b bla_word
+  bla_done:
+  EndASM
+EndProcedure
+
+; One whole area blit without fill, as BlitArea would do it.
+Procedure BlitAreaFast(w.i, h.i)
+  Protected y.i, lf.i, ash.i, bsh.i, kind.i
+  lf = BltCon0 & $FF
+  ash = (BltCon0 >> 12) & 15
+  bsh = (BltCon1 >> 12) & 15
+  BlitK(0) = BltApt
+  BlitK(1) = BltBpt
+  BlitK(2) = BltCpt
+  BlitK(3) = BltDpt
+  BlitK(5) = 0
+  BlitK(6) = 0
+  BlitK(7) = BltAdat
+  BlitK(8) = BltBdat
+  BlitK(9) = BltCdat
+  BlitK(10) = ((BltCon0 >> 11) & 1) | (((BltCon0 >> 10) & 1) << 1) | (((BltCon0 >> 9) & 1) << 2) | (((BltCon0 >> 8) & 1) << 3)
+  If BltCon1 & 2
+    BlitK(4) = -2
+    BlitK(10) = BlitK(10) | 16
+    BlitK(11) = 16 - ash
+    BlitK(12) = 16 - bsh
+  Else
+    BlitK(4) = 2
+    BlitK(11) = ash
+    BlitK(12) = bsh
+  EndIf
+  BlitK(13) = BltAfwm
+  BlitK(14) = BltAlwm
+  BlitK(15) = -((lf >> 7) & 1) & $FFFF
+  BlitK(16) = -((lf >> 6) & 1) & $FFFF
+  BlitK(17) = -((lf >> 5) & 1) & $FFFF
+  BlitK(18) = -((lf >> 4) & 1) & $FFFF
+  BlitK(19) = -((lf >> 3) & 1) & $FFFF
+  BlitK(20) = -((lf >> 2) & 1) & $FFFF
+  BlitK(21) = -((lf >> 1) & 1) & $FFFF
+  BlitK(22) = -(lf & 1) & $FFFF
+  BlitK(23) = 0
+  BlitK(24) = w
+  BlitK(25) = ChipMask
+  ; which row loop: a constant D, A to D, or the general one
+  kind = 0
+  If (BltCon0 & $F00) = $100 And (lf = 0 Or lf = $FF)
+    kind = 1
+    BlitK(26) = -(lf & 1) & $FFFF
+    BlitK(23) = BlitK(26)
+  ElseIf (BltCon0 & $F00) = $900 And lf = $F0
+    kind = 2
+  EndIf
+  For y = 0 To h - 1
+    If kind = 1
+      BlitRowConst()
+    ElseIf kind = 2
+      BlitRowCopyA()
+    Else
+      BlitRowAsm()
+    EndIf
+    If BltCon1 & 2
+      If BltCon0 & $800
+        BlitK(0) = (BlitK(0) - BltAmod) & ChipMask
+      EndIf
+      If BltCon0 & $400
+        BlitK(1) = (BlitK(1) - BltBmod) & ChipMask
+      EndIf
+      If BltCon0 & $200
+        BlitK(2) = (BlitK(2) - BltCmod) & ChipMask
+      EndIf
+      If BltCon0 & $100
+        BlitK(3) = (BlitK(3) - BltDmod) & ChipMask
+      EndIf
+    Else
+      If BltCon0 & $800
+        BlitK(0) = (BlitK(0) + BltAmod) & ChipMask
+      EndIf
+      If BltCon0 & $400
+        BlitK(1) = (BlitK(1) + BltBmod) & ChipMask
+      EndIf
+      If BltCon0 & $200
+        BlitK(2) = (BlitK(2) + BltCmod) & ChipMask
+      EndIf
+      If BltCon0 & $100
+        BlitK(3) = (BlitK(3) + BltDmod) & ChipMask
+      EndIf
+    EndIf
+  Next
+  BltApt = BlitK(0)
+  BltBpt = BlitK(1)
+  BltCpt = BlitK(2)
+  BltDpt = BlitK(3)
+  BltAdat = BlitK(7)
+  BltBdat = BlitK(8)
+  BltCdat = BlitK(9)
+  BltDdat = BlitK(26)
+  BltZero = Bool(BlitK(23) = 0)
+EndProcedure

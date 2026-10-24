@@ -9,9 +9,15 @@ Macro ProcedureRAM
 EndMacro
 
 #AUD_RING = 16384                 ; Paula's output ring, stereo pairs
-#AUD_RATE = 44100
+CompilerIf Defined(AUD_RATE_48K, #PB_Constant)
+  #AUD_RATE = 48000                ; a build to compare Paula's samples with the Picos' (tools/pico_demo_check.sh)
+CompilerElse
+  #AUD_RATE = 44100
+CompilerEndIf
 #AUD_MONO = 0
 #AM_PROFILE = 0
+#AM_BLIT_ASM = 0
+#AM_AUDIO_ASM = 0
 CompilerIf Defined(M68K_HIST, #PB_Constant)
   XIncludeFile "m68k_core_hist.pbi"   ; tools/gen_m68k.py --hist: counts opcodes
 CompilerElse

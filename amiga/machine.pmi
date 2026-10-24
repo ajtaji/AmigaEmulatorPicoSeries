@@ -164,7 +164,10 @@ EndProcedure
 Procedure.i CustomRead(reg.i)
   Protected v.i, h.i
   reg = reg & $1FE
-  If reg = #R_DMACONR
+  ; the registers programs poll come first (INTREQR above all: wait-for-VBLANK)
+  If reg = #R_INTREQR
+    v = IntReq
+  ElseIf reg = #R_DMACONR
     v = DmaCon & $07FF
     If BlitBusy()
       v = v | #DMA_BBUSY
@@ -208,8 +211,6 @@ Procedure.i CustomRead(reg.i)
     EndIf
   ElseIf reg = #R_INTENAR
     v = IntEna
-  ElseIf reg = #R_INTREQR
-    v = IntReq
   ElseIf reg = #R_DSKDATR
     v = 0
   Else

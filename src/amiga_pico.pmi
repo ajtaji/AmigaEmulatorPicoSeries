@@ -31,8 +31,11 @@ FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
 #AUD_RING = 4096
 #AUD_RATE = 48000
 #AUD_MONO = 1
-; where the time goes: the M33's cycle counter (DWT CYCCNT, enabled in Main), 'p' prints it
-#AM_PROFILE = 1
+; where the time goes: #AM_PROFILE = 1 in the wrapper (src/amiga_profile.feather2350) times each
+; part of the line with the M33's cycle counter (DWT CYCCNT, enabled in Main); 'p' prints it.
+; It costs about 1 ms a frame, so the normal builds leave it out.
+#AM_BLIT_ASM = 1      ; area blits without fill: src/blit_fast.pmi
+#AM_AUDIO_ASM = 1     ; Paula's line of mono audio: src/audio_fast.pmi (#AUD_RING 4096)
 Macro AmClock()
   PeekL($E0001004)
 EndMacro
@@ -43,7 +46,9 @@ XIncludeFile "../amiga/cia.pmi"
 XIncludeFile "../amiga/copper.pmi"
 XIncludeFile "../amiga/denise.pmi"
 XIncludeFile "../amiga/blitter.pmi"
+XIncludeFile "blit_fast.pmi"
 XIncludeFile "../amiga/paula.pmi"
+XIncludeFile "audio_fast.pmi"
 XIncludeFile "../amiga/input.pmi"
 XIncludeFile "../amiga/machine.pmi"
 XIncludeFile "io.pmi"
@@ -134,8 +139,28 @@ Procedure DumpChip()
   Next
   Say("CEND")
   Eol()
+  ; Paula's ring as it stands (mono samples, oldest first after AudWr)
+  Say("AUD wr=")
+  Num(AudWr)
+  Eol()
+  For a = 0 To #AUD_RING - 1 Step 32
+    UsbSerialWrite(65)
+    For b = 0 To 31
+      v = AudRing(a + b) & $FFFF
+      HexDigit(v >> 12)
+      HexDigit(v >> 8)
+      HexDigit(v >> 4)
+      HexDigit(v)
+    Next
+    Eol()
+    UsbSerialTask()
+    SafetyPet()
+  Next
+  Say("AEND")
+  Eol()
 EndProcedure
 
+CompilerIf #AM_PROFILE = 1
 ; microseconds per frame in each part of the line (AmigaRunLine), over 50 frames
 Procedure ProfReport()
   Protected k.i, tot.i
@@ -157,6 +182,10 @@ Procedure ProfReport()
   Num(M68kFastHit / 50)
   Say(" miss ")
   Num(M68kFastMiss / 50)
+  Say(" | blits/frame ")
+  Num(AmProf(16) / 50)
+  Say(" words ")
+  Num(AmProf(15) / 50)
   Say(" | chip reg reads us ")
   Num(AmProf(11) / (50 * (#CLOCK_KHZ / 1000)))
   Say(" n ")
@@ -169,6 +198,7 @@ Procedure ProfReport()
   Num(tot)
   Eol()
 EndProcedure
+CompilerEndIf
 
 Procedure.i RxWait()
   Protected c.i
@@ -313,17 +343,19 @@ Procedure Main()
       Say("END")
       Eol()
     EndIf
-    If ProfFrom = -2
-      For k = 0 To 15
-        AmProf(k) = 0
-      Next
-      M68kFastHit = 0
-      M68kFastMiss = 0
-      ProfFrom = FrameCount
-    ElseIf ProfFrom >= 0 And FrameCount - ProfFrom >= 50
-      ProfReport()
-      ProfFrom = -1
-    EndIf
+    CompilerIf #AM_PROFILE = 1
+      If ProfFrom = -2
+        For k = 0 To 16
+          AmProf(k) = 0
+        Next
+        M68kFastHit = 0
+        M68kFastMiss = 0
+        ProfFrom = FrameCount
+      ElseIf ProfFrom >= 0 And FrameCount - ProfFrom >= 50
+        ProfReport()
+        ProfFrom = -1
+      EndIf
+    CompilerEndIf
     If DumpAt > 0 And FrameCount = DumpAt
       DumpChip()
       DumpAt = 0

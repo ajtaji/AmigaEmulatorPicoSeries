@@ -63,8 +63,8 @@ Procedure SpriteDmaLine()
       SprState(s) = 0
     EndIf
     If SprState(s) = 0
-      SprPos(s) = ChipRd(pt)
-      SprCtl(s) = ChipRd(pt + 2)
+      SprPos(s) = ChipWord(pt)
+      SprCtl(s) = ChipWord(pt + 2)
       SprPt(s) = (pt + 4) & ChipMask
       SprArmed(s) = 0
       SprState(s) = 1
@@ -81,8 +81,8 @@ Procedure SpriteDmaLine()
       If SprState(s) = 2
         If VPos >= ve
           pt = SprPt(s)
-          SprPos(s) = ChipRd(pt)
-          SprCtl(s) = ChipRd(pt + 2)
+          SprPos(s) = ChipWord(pt)
+          SprCtl(s) = ChipWord(pt + 2)
           SprPt(s) = (pt + 4) & ChipMask
           SprArmed(s) = 0
           SprState(s) = 1
@@ -91,8 +91,8 @@ Procedure SpriteDmaLine()
           EndIf
         Else
           pt = SprPt(s)
-          SprDatA(s) = ChipRd(pt)
-          SprDatB(s) = ChipRd(pt + 2)
+          SprDatA(s) = ChipWord(pt)
+          SprDatB(s) = ChipWord(pt + 2)
           SprPt(s) = (pt + 4) & ChipMask
           SprArmed(s) = 1
         EndIf

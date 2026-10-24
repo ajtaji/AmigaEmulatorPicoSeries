@@ -47,7 +47,7 @@ def dispatch():
             'ldr r1, [r1, r0]',
             'bx r1']
 
-COUNT = True      # count fast-path hits and fall-backs (M68kFastHit / M68kFastMiss) for the profile
+COUNT = False     # True: count fast-path hits and fall-backs (M68kFastHit / M68kFastMiss) for the profile
 
 def count(var):
     if not COUNT:
@@ -85,9 +85,10 @@ def ea_d16(dst, field_shift, ext_off, tmp):
         f'ldrsh {tmp}, [r4, {tmp}]',
         f'adds {dst}, {dst}, {tmp}']
 
-def host_of(ea, dst, fb, table, size):
+def host_of(ea, dst, fb, table, size, nopage=None):
     """dst = the host address of guest ea through PageR/PageW; fall back on no
-    page, an odd address, or (size 4) a long that would cross the page."""
+    page (or go to nopage), an odd address, or (size 4) a long that would cross
+    the page."""
     out = [f'lsls {dst}, {ea}, #31', f'bne {fb}']           # odd
     if size == 4:
         # (ea & $FFE) = $FFE: the long's second word is on the next page
@@ -95,7 +96,7 @@ def host_of(ea, dst, fb, table, size):
                 f'ldr r1, ={0x7FF}', f'cmp {dst}, r1', f'beq {fb}']
     out += [f'lsls {dst}, {ea}, #8', f'lsrs {dst}, {dst}, #20', f'lsls {dst}, {dst}, #2',
             f'ldr r1, =global_{table}', f'ldr {dst}, [r1, {dst}]',
-            f'cmp {dst}, #0', f'beq {fb}',
+            f'cmp {dst}, #0', f'beq {nopage or fb}',
             f'lsls r1, {ea}, #8', f'lsrs r1, r1, #8', f'adds {dst}, {dst}, r1']
     return out
 
@@ -122,7 +123,12 @@ def flags_logic(size, val):
 # ---------------------------------------------------------------- sources
 # Each source returns (lines, ext_bytes, src_cycles_by_size): lines leave the
 # operand in r2 (zero-extended for .W) and use r0 = op, r1, r3, r5.
-def src(mode, size, fb, ext_off=2, src_regs='r5'):
+def src(mode, size, fb, ext_off=2, src_regs='r5', hook=False):
+    """hook: a word read from a page that is not RAM goes to the chips' read hook
+    (M68kHookRd16, as M68kRd16 would) instead of falling back. Only for handlers
+    whose every fall-back check comes BEFORE the source is read: a chip
+    register read can have an effect (CLXDAT, the CIAs' ICR) and must not
+    happen twice. The call leaves r0-r3 changed; op is read again."""
     if mode == 'Dn':
         return reg_addr('r3', 0, False, 'r1') + ([f'ldrh r2, [r3]'] if size == 2 else ['ldr r2, [r3]']), 0, 0
     if mode == 'An':
@@ -135,6 +141,12 @@ def src(mode, size, fb, ext_off=2, src_regs='r5'):
         if src_regs == 'r3':      # r5 is taken (it holds a destination): ea in r3, host in r2
             return (ea_d16('r3', 0, ext_off, 'r1') + host_of('r3', 'r2', fb, 'pager', size)
                     + load(size, 'r2', 'r2')), 2, (8 if size == 2 else 12)
+        if hook and size == 2:
+            H, J = _lab('src', 'hook'), _lab('src', 'join')
+            return (ea_d16('r5', 0, ext_off, 'r1') + host_of('r5', 'r3', fb, 'pager', size, nopage=H)
+                    + load(size, 'r2', 'r3') + [f'b {J}', f'{H}:',
+                    'lsls r0, r5, #8', 'lsrs r0, r0, #8', 'bl m68khookrd16', 'uxth r2, r0',
+                    'ldrh r0, [r4]', f'{J}:']), 2, 8
         return (ea_d16('r5', 0, ext_off, 'r1') + host_of('r5', 'r3', fb, 'pager', size)
                 + load(size, 'r2', 'r3')), 2, (8 if size == 2 else 12)
     raise ValueError(mode)
@@ -184,7 +196,7 @@ def build():
     # MOVE.W / MOVE.L <ea>,Dn  (MoveW0, MoveL0)
     for size, h in ((2, 'MoveW0'), (4, 'MoveL0')):
         def body(m, fb, size=size):
-            lines, ext, cyc = src(m, size, fb)
+            lines, ext, cyc = src(m, size, fb, hook=True)
             return (lines + reg_addr('r3', 9, False, 'r1')
                     + [('strh' if size == 2 else 'str') + ' r2, [r3]']
                     + flags_logic(size, 'r2') + finish(4 + cyc, 2 + ext))
@@ -212,7 +224,7 @@ def build():
 
     # CMP.W <ea>,Dn (CMPWEaDn)
     def body_cmpw(m, fb):
-        lines, ext, cyc = src(m, 2, fb)
+        lines, ext, cyc = src(m, 2, fb, hook=True)
         return lines + reg_addr('r3', 9, False, 'r1') + [
             'ldrh r3, [r3]',
             'lsls r3, r3, #16', 'lsls r2, r2, #16',
@@ -220,6 +232,17 @@ def build():
             'mov r8, r3', 'mov r9, r3',
         ] + capture_vc(borrow=True, x=False, tag=_lab('cmpw', 'v')) + finish(4 + cyc, 2 + ext)
     block('CMPWEaDn', ['Dn', 'd16', 'imm'], body_cmpw, ALL)
+
+    # BTST #n,Dn (BTSTI): Z = the bit is clear (FZ holds the bit), 10 cycles
+    fbb = 'fp_btsti_fallback'
+    FAST['BTSTI'] = ['ldrh r0, [r4]', 'movs r1, #56', 'tst r0, r1', f'bne {fbb}',
+                     'movs r1, #2', 'ldrh r1, [r4, r1]', 'movs r2, #31', 'ands r1, r2',
+                     'movs r2, #7', 'ands r2, r0', 'lsls r2, r2, #2', 'ldr r3, =global_reg',
+                     'ldr r2, [r3, r2]', 'lsrs r2, r1', 'movs r1, #1', 'ands r2, r1',
+                     'mov r8, r2'] + finish(10, 4) + [f'{fbb}:']
+    USES['BTSTI'] = uses_of(FAST['BTSTI'])
+    if ONLY and 'BTSTI' not in ONLY:
+        del FAST['BTSTI'], USES['BTSTI']
 
     # Bcc and BRA
     import gen_m68k

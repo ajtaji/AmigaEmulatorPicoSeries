@@ -48,9 +48,23 @@ Procedure.i CopperWaitPos(h.i)
   If vb > vt
     ProcedureReturn h
   EndIf
+  ; on the WAIT's own line only the horizontal part decides: the first even h
+  ; with (h & hm) >= (target & hm). With every bit compared that is simply the
+  ; later of the two; with fewer, the same scan CopperCond would make.
   h = h & ~1
+  vm = CopWait2 & $FE
+  vt = CopWait1 & vm
+  If vm = $FE
+    If h < vt
+      h = vt
+    EndIf
+    If h < #AM_CCK_LINE
+      ProcedureReturn h
+    EndIf
+    ProcedureReturn -1
+  EndIf
   While h < #AM_CCK_LINE
-    If CopperCond(VPos, h)
+    If (h & vm) >= vt
       ProcedureReturn h
     EndIf
     h = h + 2
@@ -89,8 +103,8 @@ Procedure CopperRun(t.i)
         CopNextCyc = bt
       EndIf
     Else
-      ir1 = ChipRd(CopPc)
-      ir2 = ChipRd(CopPc + 2)
+      ir1 = ChipWord(CopPc)
+      ir2 = ChipWord(CopPc + 2)
       CopPc = (CopPc + 4) & ChipMask
       h = (at - LineCyc0) >> 1
       If (ir1 & 1) = 0

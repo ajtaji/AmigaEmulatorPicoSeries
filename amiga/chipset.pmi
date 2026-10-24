@@ -152,7 +152,7 @@ Declare DispCatchUp(hpos.i)
 ; 4 display end of line, 5 audio, 6 disk + keyboard, 7 CIAs + frame end; and inside
 ; those, 8 blitter (BlitStart) and 9 display catch-up (DispCatchUp).
 CompilerIf #AM_PROFILE = 1
-  Global Dim AmProf.i(16)        ; 10: M68kRun calls; 11/12 time in the CPU's chip-register reads/writes, 13/14 their counts
+  Global Dim AmProf.i(20)        ; 10: M68kRun calls; 11/12 time in the CPU's chip-register reads/writes, 13/14 their counts
   Macro AmProfMark(k)
     pt = AmClock()
     AmProf(k) = AmProf(k) + pt - p0
@@ -200,6 +200,12 @@ Procedure MemClear(addr.i, bytes.i)
 EndProcedure
 
 ; A word of chip RAM (DMA side): addr is masked to the chip RAM.
+; A chip RAM word, inline (no call): what ChipRd(a) returns, for the per-line hot
+; paths (sprite DMA, the copper, Paula).
+Macro ChipWord(a)
+  PeekU(ChipBase(((a) & ChipMask & ~1) >> 16) + ((a) & ChipMask & ~1))
+EndMacro
+
 ; Chip RAM as two blocks: low bytes from lowHost, the rest from highHost.
 Procedure ChipSetHost(lowHost.i, lowBytes.i, highHost.i)
   Protected k.i

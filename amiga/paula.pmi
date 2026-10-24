@@ -124,7 +124,7 @@ Procedure AudioNextByte(c.i)
       IntReq = IntReq | (#INT_AUD0 << c)
       AmigaSetIpl()
     EndIf
-    AudDat(c) = ChipRd(AudPt(c))
+    AudDat(c) = ChipWord(AudPt(c))
     AudPt(c) = (AudPt(c) + 2) & ChipMask
     AudLen(c) = AudLen(c) - 1
   ElseIf AudCpu(c)
@@ -132,6 +132,20 @@ Procedure AudioNextByte(c.i)
     IntReq = IntReq | (#INT_AUD0 << c)
     AmigaSetIpl()
   EndIf
+EndProcedure
+
+; Advance channel c by n colour clocks.
+Procedure AudioStep1(c.i, n.i)
+  Protected per.i
+  per = Cust((#R_AUD0LCH >> 1) + c * 8 + 3)
+  If per < 124
+    per = 124
+  EndIf
+  AudCnt(c) = AudCnt(c) - n
+  While AudCnt(c) <= 0
+    AudCnt(c) = AudCnt(c) + per
+    AudioNextByte(c)
+  Wend
 EndProcedure
 
 ; Advance every channel by n colour clocks.
@@ -162,35 +176,69 @@ Procedure.i AudioVol(c.i)
 EndProcedure
 
 ; One line of audio: the samples that fall in it. This runs after the line's CPU
-; and copper work, so no register changes while it runs: the volumes are read
-; once, and with no channel playing nothing steps.
+; and copper work, so no register changes while it runs. Each playing channel
+; is stepped through the whole line once, its output kept at every sample
+; point (AudSmp); then the samples are mixed. Channels never touch each
+; other's state - a fetched byte only reads chip RAM and sets its own interrupt
+; bit - so stepping them one after the other gives what stepping them together
+; gives.
+Global Dim AudSmp.i(4 * 8)
+CompilerIf #AM_AUDIO_ASM = 1
+  ; the platform's own line of mono audio (the RP2350: src/audio_fast.pmi)
+  Declare AudioLineFast(n.i)
+CompilerEndIf
 Procedure AudioLine()
-  Protected n.i, k.i, c.i, l.i, r.i, chunk.i, act.i, v0.i, v1.i, v2.i, v3.i
+  Protected n.i, k.i, c.i, l.i, r.i, chunk.i, last.i, act.i, per.i, cnt.i, v0.i, v1.i, v2.i, v3.i
   AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
   n = AudAcc / 3546895
   AudAcc = AudAcc - n * 3546895
-  act = AudOn(0) | AudOn(1) | AudOn(2) | AudOn(3) | AudCpu(0) | AudCpu(1) | AudCpu(2) | AudCpu(3)
   If n = 0
-    If act
-      AudioStep(#AM_CCK_LINE)
-    EndIf
+    For c = 0 To 3
+      If AudOn(c) Or AudCpu(c)
+        AudioStep1(c, #AM_CCK_LINE)
+      EndIf
+    Next
     ProcedureReturn
   EndIf
+  CompilerIf #AM_AUDIO_ASM = 1
+    AudioLineFast(n)
+    ProcedureReturn
+  CompilerEndIf
+  chunk = #AM_CCK_LINE / n
+  last = #AM_CCK_LINE - chunk * (n - 1)
+  For c = 0 To 3
+    If AudOn(c) Or AudCpu(c)
+      per = Cust((#R_AUD0LCH >> 1) + c * 8 + 3)
+      If per < 124
+        per = 124
+      EndIf
+      cnt = AudCnt(c)
+      For k = 0 To n - 1
+        If k = n - 1
+          cnt = cnt - last
+        Else
+          cnt = cnt - chunk
+        EndIf
+        While cnt <= 0
+          cnt = cnt + per
+          AudioNextByte(c)
+        Wend
+        AudSmp(c * 8 + k) = AudOut(c)
+      Next
+      AudCnt(c) = cnt
+    Else
+      For k = 0 To n - 1
+        AudSmp(c * 8 + k) = AudOut(c)
+      Next
+    EndIf
+  Next
   v0 = AudioVol(0)
   v1 = AudioVol(1)
   v2 = AudioVol(2)
   v3 = AudioVol(3)
-  chunk = #AM_CCK_LINE / n
   For k = 0 To n - 1
-    If act
-      If k = n - 1
-        AudioStep(#AM_CCK_LINE - chunk * (n - 1))
-      Else
-        AudioStep(chunk)
-      EndIf
-    EndIf
-    l = AudOut(0) * v0 + AudOut(3) * v3
-    r = AudOut(1) * v1 + AudOut(2) * v2
+    l = AudSmp(k) * v0 + AudSmp(24 + k) * v3
+    r = AudSmp(8 + k) * v1 + AudSmp(16 + k) * v2
     CompilerIf #AUD_MONO = 1
       AudRing(AudWr & (#AUD_RING - 1)) = l + r
     CompilerElse

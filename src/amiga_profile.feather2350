@@ -1,0 +1,18 @@
+; The Feather build with the time profile on (#AM_PROFILE = 1, the 'p' command):
+;   tools/pico_machine.ps1 -Source src/amiga_profile.feather2350 -Prof 6
+; The Amiga 500 on the Adafruit Feather RP2350 HSTX (RP2350A, 8 MB PSRAM on GPIO8).
+EnableRunFromRAM
+#CLOCK_KHZ = 150000
+#M68K_ASM_TAIL = 1
+#AM_PROFILE = 1
+#CHIP_SRAM_KB = 256            ; the low chip RAM in SRAM (the rest in PSRAM)
+#AMIGA_AUDIO = 0              ; no radio on this board
+XIncludeFile "RP2350/Lib/clocks.pico2"
+XIncludeFile "RP2350/Lib/timer.pico2"
+XIncludeFile "RP2350/Lib/uart.pico2"
+XIncludeFile "RP2350/Lib/usb_serial.pico2"
+XIncludeFile "RP2350/Lib/safety.pico2"
+XIncludeFile "RP2350/Lib/psram.pico2"
+#KICK_OFFSET = $040000        ; below the PDP-11 packs ($240000 up) and store ($700000)
+#DF0_OFFSET = $0C0000
+XIncludeFile "amiga_pico.pmi"

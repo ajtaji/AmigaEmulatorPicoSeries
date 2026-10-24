@@ -11,7 +11,7 @@ XIncludeFile "amiga_host.pbi"
 
 OpenConsole()
 Define k.i, a.s, rom.s, ext.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
-Define cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s, n.i, l.i, r.i, zl.i, zr.i, ll.q, rr.q, pl.i, pr.i
+Define m.i, cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s, n.i, l.i, r.i, zl.i, zr.i, ll.q, rr.q, pl.i, pr.i
 For k = 0 To CountProgramParameters() - 1
   a = ProgramParameter(k)
   If a = "--rom"
@@ -122,6 +122,16 @@ CompilerIf Defined(M68K_HIST, #PB_Constant)
   PrintN("opcode counts: m68k_hist.bin")
 CompilerEndIf
 If chipFile <> ""
+  ; Paula's ring beside it (chipFile + ".aud"): AudWr, then each slot's left + right
+  ; - the mono sample a #AUD_MONO platform writes there - as big-endian words
+  f = CreateFile(#PB_Any, chipFile + ".aud")
+  WriteLong(f, AudWr)
+  For w = 0 To #AUD_RING - 1
+    m = (AudRing(w * 2) + AudRing(w * 2 + 1)) / 2
+    WriteByte(f, (m >> 8) & 255)
+    WriteByte(f, m & 255)
+  Next
+  CloseFile(f)
   ; chip RAM, big-endian as the 68000 sees it
   f = CreateFile(#PB_Any, chipFile)
   For w = 0 To $7FFFE Step 2

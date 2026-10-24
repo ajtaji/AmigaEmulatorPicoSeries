@@ -1,0 +1,210 @@
+; Paula's per-line work in Thumb assembly (RP2350, mono output): what
+; amiga/paula.pmi's AudioLine does when #AM_AUDIO_ASM = 1. The PureMetal loop
+; measured about 1,700 host cycles a line with four channels playing (the
+; PureMetal demo); this one steps the same channels by the same colour clocks
+; and calls the same AudioNextByte at the same points, so the bytes fetched, the
+; interrupts raised and the samples written are the same - proven by the
+; desktop's hash of Paula's ring and the demo's chip RAM matching the PC.
+;
+; #AM_CCK_LINE (227) is written into the assembly below as a number.
+; AudK, longs (offsets in bytes):
+;   0 n (samples this line)  4 chunk  8 last chunk  12 the channel
+;  16 its period  20 its count  24 the sample index
+;  28 v0  32 v1  36 v2  40 v3 (volumes)
+; AudSmp(c * 8 + k) is channel c's output at sample k (amiga/paula.pmi).
+
+Global Dim AudK.l(16)
+
+Procedure AudioLineAsm()
+  ASM
+    ldr r3, =global_audk
+    ; chunk = 227 / n, last = 227 - chunk * (n - 1)
+    ldr r1, [r3, #0]
+    movs r0, #227
+    udiv r2, r0, r1
+    str r2, [r3, #4]
+    subs r1, #1
+    muls r1, r2
+    subs r0, r0, r1
+    str r0, [r3, #8]
+    ; the volumes: AUDxVOL & 127, at most 64
+    movs r0, #0
+  auf_vol:
+    lsls r1, r0, #3
+    adds r1, #84
+    lsls r1, r1, #1
+    ldr r2, =global_cust
+    ldrh r2, [r2, r1]
+    movs r1, #127
+    ands r2, r1
+    cmp r2, #64
+    ble auf_volok
+    movs r2, #64
+  auf_volok:
+    lsls r1, r0, #2
+    adds r1, #28
+    str r2, [r3, r1]
+    adds r0, #1
+    cmp r0, #4
+    blt auf_vol
+    movs r0, #0
+    str r0, [r3, #12]
+  auf_ch:
+    ldr r0, [r3, #12]
+    lsls r1, r0, #2
+    ldr r2, =global_audon
+    ldr r2, [r2, r1]
+    ldr r5, =global_audcpu
+    ldr r5, [r5, r1]
+    orrs r2, r5
+    beq auf_idle
+    ; the period: Cust($A0/2 + c * 8 + 3), at least 124
+    lsls r1, r0, #3
+    adds r1, #83
+    lsls r1, r1, #1
+    ldr r2, =global_cust
+    ldrh r2, [r2, r1]
+    cmp r2, #124
+    bge auf_per
+    movs r2, #124
+  auf_per:
+    str r2, [r3, #16]
+    lsls r1, r0, #2
+    ldr r2, =global_audcnt
+    ldr r2, [r2, r1]
+    str r2, [r3, #20]
+    movs r1, #0
+    str r1, [r3, #24]
+  auf_k:
+    ldr r1, [r3, #24]
+    ldr r2, [r3, #0]
+    subs r2, #1
+    cmp r1, r2
+    beq auf_last
+    ldr r5, [r3, #4]
+    b auf_sub
+  auf_last:
+    ldr r5, [r3, #8]
+  auf_sub:
+    ldr r2, [r3, #20]
+    subs r2, r2, r5
+    str r2, [r3, #20]
+  auf_byte:
+    ldr r2, [r3, #20]
+    cmp r2, #0
+    bgt auf_nobyte
+    ldr r5, [r3, #16]
+    adds r2, r2, r5
+    str r2, [r3, #20]
+    ; the high byte of the word already fetched: here; the low byte (the next
+    ; fetch, the interrupt) in AudioNextByte
+    ldr r0, [r3, #12]
+    lsls r1, r0, #2
+    ldr r2, =global_audhalf
+    ldr r5, [r2, r1]
+    cmp r5, #0
+    bne auf_low
+    movs r5, #1
+    str r5, [r2, r1]
+    ldr r2, =global_auddat
+    ldr r5, [r2, r1]
+    lsrs r5, r5, #8
+    sxtb r5, r5
+    ldr r2, =global_audout
+    str r5, [r2, r1]
+    b auf_byte
+  auf_low:
+    bl audionextbyte
+    ldr r3, =global_audk
+    b auf_byte
+  auf_nobyte:
+    ldr r0, [r3, #12]
+    lsls r1, r0, #2
+    ldr r2, =global_audout
+    ldr r2, [r2, r1]
+    lsls r1, r0, #3
+    ldr r5, [r3, #24]
+    adds r1, r1, r5
+    lsls r1, r1, #2
+    ldr r5, =global_audsmp
+    str r2, [r5, r1]
+    ldr r1, [r3, #24]
+    adds r1, #1
+    str r1, [r3, #24]
+    ldr r2, [r3, #0]
+    cmp r1, r2
+    blt auf_k
+    ldr r0, [r3, #12]
+    lsls r1, r0, #2
+    ldr r2, [r3, #20]
+    ldr r5, =global_audcnt
+    str r2, [r5, r1]
+    b auf_next
+  auf_idle:
+    ; a silent channel holds its last output
+    lsls r1, r0, #2
+    ldr r2, =global_audout
+    ldr r2, [r2, r1]
+    lsls r1, r0, #5
+    ldr r5, =global_audsmp
+    adds r5, r5, r1
+    ldr r1, [r3, #0]
+  auf_fill:
+    str r2, [r5]
+    adds r5, #4
+    subs r1, #1
+    bne auf_fill
+  auf_next:
+    ldr r0, [r3, #12]
+    adds r0, #1
+    str r0, [r3, #12]
+    cmp r0, #4
+    bge auf_mix
+    b auf_ch
+    ; the mix: l = c0 * v0 + c3 * v3, r = c1 * v1 + c2 * v2, mono = l + r
+  auf_mix:
+    movs r0, #0
+    str r0, [r3, #24]
+  auf_m:
+    ldr r0, [r3, #24]
+    lsls r0, r0, #2
+    ldr r5, =global_audsmp
+    adds r5, r5, r0
+    ldr r0, [r5, #0]
+    ldr r1, [r3, #28]
+    muls r0, r1
+    ldr r2, [r5, #32]
+    ldr r1, [r3, #32]
+    muls r2, r1
+    adds r0, r0, r2
+    ldr r2, [r5, #64]
+    ldr r1, [r3, #36]
+    muls r2, r1
+    adds r0, r0, r2
+    ldr r2, [r5, #96]
+    ldr r1, [r3, #40]
+    muls r2, r1
+    adds r0, r0, r2
+    ldr r1, =global_audwr
+    ldr r2, [r1]
+    adds r5, r2, #1
+    str r5, [r1]
+    ldr r1, =4095
+    ands r2, r1
+    lsls r2, r2, #1
+    ldr r1, =global_audring
+    strh r0, [r1, r2]
+    ldr r0, [r3, #24]
+    adds r0, #1
+    str r0, [r3, #24]
+    ldr r1, [r3, #0]
+    cmp r0, r1
+    blt auf_m
+  EndASM
+EndProcedure
+
+; One line of audio (mono): AudioLine's work.
+Procedure AudioLineFast(n.i)
+  AudK(0) = n
+  AudioLineAsm()
+EndProcedure
