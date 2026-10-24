@@ -8,15 +8,18 @@
 ;   ChipHost / ChipMask   the chip RAM (guest words in host byte order), its size - 1
 ;   AmigaSlowHost, AmigaSlowBytes   slow RAM at $C00000 (0 = none)
 ;   AmigaRomHost, AmigaRomBytes     the Kickstart (256 or 512 KB, words in host order)
+;   AmigaExtHost, AmigaExtBytes     an extended ROM at $E00000 (512 KB; 0 = none) -
+;                                   the second half of AROS's ROM pair, for one
 ; and the procedures AmigaLineDone(y) (a picture line is in LineBuf) and
 ; AmigaSerial(byte) (a byte sent on the serial port).
 ;
 ; Memory map: chip RAM at $000000 (mirrored to $1FFFFF), the CIAs at $BFxxxx
 ; (mirrored $A00000-$BFFFFF), slow RAM at $C00000, the custom chips at $DFF000
 ; (and wherever $C00000-$DFFFFF is not RAM), the ROM at $F80000 (a 256 KB ROM is
-; mirrored at $FC0000), with the overlay putting the ROM at $000000 after reset.
+; mirrored at $FC0000), an extended ROM at $E00000 when there is one, with the
+; overlay putting the ROM at $000000 after reset.
 
-Global AmigaSlowHost.i, AmigaSlowBytes.i, AmigaRomHost.i, AmigaRomBytes.i
+Global AmigaSlowHost.i, AmigaSlowBytes.i, AmigaRomHost.i, AmigaRomBytes.i, AmigaExtHost.i, AmigaExtBytes.i
 Global AmigaOvl.i, AmigaEBase.i, AmigaERem.i, AmigaFrameCyc.i
 Global AmigaCpuCycles.i, AmigaLastBus.i
 
@@ -141,6 +144,9 @@ Procedure AmigaMapMemory()
   Else
     M68kMapRom($F80000, $40000, AmigaRomHost)
     M68kMapRom($FC0000, $40000, AmigaRomHost)
+  EndIf
+  If AmigaExtBytes
+    M68kMapRom($E00000, AmigaExtBytes, AmigaExtHost)
   EndIf
   AmigaMapOverlay(1)
 EndProcedure

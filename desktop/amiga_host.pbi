@@ -24,7 +24,7 @@ XIncludeFile "../amiga/machine.pmi"
 
 #HOST_FRAME_H = 576                 ; two rows per Amiga line (interlace fills both)
 
-Global *HostChip, *HostSlow, *HostRom, *HostAdf0, *HostAdf1
+Global *HostChip, *HostSlow, *HostRom, *HostExt, *HostAdf0, *HostAdf1
 Global HostRomName.s, HostAdfName0.s, HostAdfName1.s, HostError.s
 Global Dim HostFrame.l(#AM_OUT_W * #HOST_FRAME_H)
 Global Dim HostPal.l(4096)
@@ -87,6 +87,7 @@ Procedure HostInit(slowKb.i)
   If *HostChip = 0
     *HostChip = AllocateMemory($80000)
     *HostRom = AllocateMemory($80000)
+    *HostExt = AllocateMemory($80000)
     *HostSlow = AllocateMemory($80000)
   EndIf
   ChipHost = *HostChip
@@ -94,17 +95,24 @@ Procedure HostInit(slowKb.i)
   AmigaSlowHost = *HostSlow
   AmigaSlowBytes = slowKb * 1024
   AmigaRomHost = *HostRom
+  AmigaExtHost = *HostExt
 EndProcedure
 
-; A Kickstart image, 256 or 512 KB, big-endian as dumped; kept in host word order.
-; A big-endian ROM image (256 or 512 KB) into the ROM area, in host word order.
-Procedure HostSetRom(*buf, n.i)
+; n bytes of a big-endian image at *src into *dst, in host word order.
+Procedure HostSwapCopy(*dst, *src, n.i)
   Protected k.i
   For k = 0 To n - 2 Step 2
-    PokeA(*HostRom + k, PeekA(*buf + k + 1))
-    PokeA(*HostRom + k + 1, PeekA(*buf + k))
+    PokeA(*dst + k, PeekA(*src + k + 1))
+    PokeA(*dst + k + 1, PeekA(*src + k))
   Next
+EndProcedure
+
+; A big-endian ROM image (256 or 512 KB) into the ROM area, in host word order.
+; No extended ROM with it.
+Procedure HostSetRom(*buf, n.i)
+  HostSwapCopy(*HostRom, *buf, n)
   AmigaRomBytes = n
+  AmigaExtBytes = 0
 EndProcedure
 
 Procedure.i HostLoadRom(path.s)
@@ -115,17 +123,49 @@ Procedure.i HostLoadRom(path.s)
     ProcedureReturn 0
   EndIf
   n = Lof(f)
-  If n <> $40000 And n <> $80000
+  If n <> $40000 And n <> $80000 And n <> $100000
     CloseFile(f)
-    HostError = "The Kickstart file " + path + " is " + Str(n) + " bytes; a Kickstart image is 262144 or 524288 bytes. An Amiga Forever ROM that needs rom.key (11 bytes longer) is not supported."
+    HostError = "The Kickstart file " + path + " is " + Str(n) + " bytes; a Kickstart image is 262144 or 524288 bytes (1048576: an extended ROM at $E00000, then the ROM at $F80000). An Amiga Forever ROM that needs rom.key (11 bytes longer) is not supported."
     ProcedureReturn 0
   EndIf
   *buf = AllocateMemory(n)
   ReadData(f, *buf, n)
   CloseFile(f)
-  HostSetRom(*buf, n)
+  If n = $100000
+    ; one 1 MB file: $E00000-$E7FFFF then $F80000-$FFFFFF (how AROS's ROM is often shipped)
+    HostSetRom(*buf + $80000, $80000)
+    HostSwapCopy(*HostExt, *buf, $80000)
+    AmigaExtBytes = $80000
+  Else
+    HostSetRom(*buf, n)
+  EndIf
   FreeMemory(*buf)
   HostRomName = GetFilePart(path)
+  ProcedureReturn 1
+EndProcedure
+
+; An extended ROM (512 KB, big-endian) at $E00000, beside the ROM already loaded:
+; AROS's aros-ext.bin with its aros-rom.bin.
+Procedure.i HostLoadExt(path.s)
+  Protected f.i, n.i, *buf
+  f = ReadFile(#PB_Any, path)
+  If f = 0
+    HostError = "The extended ROM " + path + " could not be opened."
+    ProcedureReturn 0
+  EndIf
+  n = Lof(f)
+  If n <> $80000
+    CloseFile(f)
+    HostError = "The extended ROM " + path + " is " + Str(n) + " bytes; it must be 524288."
+    ProcedureReturn 0
+  EndIf
+  *buf = AllocateMemory(n)
+  ReadData(f, *buf, n)
+  CloseFile(f)
+  HostSwapCopy(*HostExt, *buf, n)
+  FreeMemory(*buf)
+  AmigaExtHost = *HostExt
+  AmigaExtBytes = n
   ProcedureReturn 1
 EndProcedure
 

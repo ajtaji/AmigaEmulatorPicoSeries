@@ -1,6 +1,7 @@
 ; Console run of the Amiga: no window.
 ;   amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png]
-;             [--slow KB] [--stamp] [--dump-chip file] [--dump-track N file]
+;             [--ext <extended ROM at $E00000>] [--slow KB] [--stamp]
+;             [--dump-chip file] [--dump-track N file]
 ;   amiga_cli --boot <disk> [...]  no Kickstart: the built-in boot ROM starts
 ;             the disk's bootblock (bootrom/bootrom.s)
 ; Runs N frames (default 250, five seconds of PAL), prints what the machine
@@ -9,12 +10,14 @@
 XIncludeFile "amiga_host.pbi"
 
 OpenConsole()
-Define k.i, a.s, rom.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
+Define k.i, a.s, rom.s, ext.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
 Define cyc0.i, dumpTrack.i = -1, dumpFile.s, w.i, chipFile.s, n.i, l.i, r.i, zl.i, zr.i, ll.q, rr.q, pl.i, pr.i
 For k = 0 To CountProgramParameters() - 1
   a = ProgramParameter(k)
   If a = "--rom"
     k + 1 : rom = ProgramParameter(k)
+  ElseIf a = "--ext"
+    k + 1 : ext = ProgramParameter(k)
   ElseIf a = "--boot"
     k + 1 : adf = ProgramParameter(k) : rom = "*boot"
 
@@ -44,6 +47,10 @@ HostInit(slowKb)
 If rom = "*boot"
   HostUseBootRom()
 ElseIf HostLoadRom(rom) = 0
+  PrintN(HostError)
+  End 2
+EndIf
+If ext <> "" And HostLoadExt(ext) = 0
   PrintN(HostError)
   End 2
 EndIf
