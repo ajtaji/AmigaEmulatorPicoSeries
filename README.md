@@ -181,13 +181,62 @@ Results at 150 MHz, the whole program in SRAM and chip RAM in PSRAM (PAL is
 |---|---|---|---|
 | Feather RP2350 (COM20) | `tests/boot` through the boot ROM | same serial output and sum as the desktop | 66 idle, 50 while loading |
 | Feather RP2350 (COM20) | `tests/chiptest.rom` | same picture as the desktop | 33 |
-| Feather RP2350 (COM20) | the PureMetal demo (`demo/`), 3 bitplanes, 8 sprites, blitter, copper | chip RAM at frame 400 identical to the desktop | 25 |
+| Feather RP2350 (COM20) | the PureMetal demo (`demo/`), 3 bitplanes, 8 sprites, blitter, copper | chip RAM at frame 400 identical to the desktop | 36 (25 before the mixer, blitter and checksum changes) |
 | Pico Plus 2 W (COM16) | `tests/boot` | same as the Feather | 66 idle |
 
-There is no sound output on the Picos yet. Display-heavy programs run at
-half speed: the bitplane and sprite work per line is the cost to cut next.
+**Where the time goes.** With `#AM_PROFILE`, the `p` command prints the time
+per part of the line, averaged over 50 frames, from the M33's cycle counter.
+For the demo on the Feather, per frame:
+
+| Part | ms |
+|---|---|
+| 68000 core | 11.5 |
+| blitter | 5.1 |
+| Paula's mixer | 3.7 |
+| copper | 3.2 |
+| line start (sprite DMA, window) | 2.0 |
+| everything else | 2.2 |
+| **total** | **27.7** (PAL's budget is 20) |
+
+The core alone runs `tests/bench` at about 1.07 M instructions a second, about
+107 host cycles each, where an A500 needs about 1.4 times that. PureMetal
+keeps locals on the stack, and that is the limit. Going faster means changing
+the core itself, for example specialised Dn paths or skipping a program's
+polling loops exactly.
+
+The picture checksum is off unless asked for with `c`. Drawing one frame in
+ten cost 12 ms a frame on average.
+
+**Sound (Pico Plus 2 W).** Paula writes mono 48 kHz (`#AUD_MONO`), and the
+compiler's Bluetooth A2DP library sends it to a speaker:
+
+- Core 0 connects; core 1 streams (`src/audio_bt.pmi`).
+- With a speaker connected, the machine is paced to 50 frames a second.
+- The published wrapper has no speaker address and runs silent. Put the
+  address in a private copy outside the repository, then run
+  `tools/pico_machine.ps1 -Source <copy> -Speaker`. The script takes the
+  SPEAKER lease after the board's, and puts the silent build back before
+  releasing it.
+- The radio firmware must be at $200000; the program checks for it.
+- The link key is kept at $960000.
+
+The sound is built but not yet heard: COM16 was off the bus when it was
+tried.
 
 ## ROMs and disks
+
+**AROS.** The `aros.rom` that AROSBootstrap loads is a HUNK executable whose
+four hunks need 1.45 MB of RAM. An A500 has 1 MB (512 KB chip and 512 KB
+slow), so the bootstrap route needs a fast-RAM expansion first. AROS's
+Kickstart-replacement ROM pair (`aros-ext.bin` at $E00000, `aros-rom.bin` at
+$F80000) needs none. The desktop takes that pair now:
+
+```
+amiga_cli --rom aros-rom.bin --ext aros-ext.bin
+```
+
+A single 1 MB file passed to `--rom` is split as extended ROM then ROM. The
+images themselves are not here yet.
 
 Kickstart and commercial disks are copyrighted: none are in this repository
 (`.gitignore` refuses `*.rom`, `*.adf`; the one exception is our own
