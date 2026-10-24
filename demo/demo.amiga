@@ -1,0 +1,422 @@
+; ======================================================================
+;  PureMetal on the Amiga - a demo for the Amiga 500, written in PureMetal
+; ======================================================================
+;  Built by PureMetal Forge for its Amiga 500 board (.amiga): the compiler
+;  writes a bootable floppy, demo.adf, whose bootblock loads this program at
+;  $40000 and starts it with the machine to itself.
+;
+;  What it does, and which chip does it:
+;    the logo        three bitplanes straight from the DataSection (Denise);
+;                    its highlight colour changes line by line (the copper)
+;    copper bars     three bars sliding on a sine behind everything: COLOR00
+;                    changed on every line by the copper
+;    the scroller    text slid along by the blitter, cut into sixteen-pixel
+;                    columns and each column put on a sine - twenty blits a frame;
+;                    a rainbow down it (the copper again, COLOR01 per line)
+;    the balls       the eight hardware sprites on a Lissajous path
+;    the tune        four channels of Paula: bass, lead, chords and drums,
+;                    played from the vertical-blank interrupt (Level3); the
+;                    drums are one-shot samples, ended by the audio interrupt
+;                    (Level4)
+;  The copper's colour columns are written by the BLITTER, not the 68000: a
+;  table of colours is copied into every line's MOVE with a destination
+;  modulo, one blit per column - so a frame costs the CPU a few dozen register
+;  writes. There are two copper lists; the one being shown is never written.
+;
+;  The graphics, tables and tune are generated: demo_assets.amiga, made by
+;  make_demo_assets.py. Left mouse button: nothing to quit to - it is the
+;  whole machine.
+; ======================================================================
+
+IncludeFile "M68k/Lib/amiga.amiga"
+IncludeFile "demo_assets.amiga"
+
+; --- the screen -----------------------------------------------------------
+#TOP     = 44             ; the first line of the display (DIWSTRT $2C81)
+#LOGO_Y  = 44             ; the logo: 64 lines
+#LOW_Y   = 108            ; the lower part: one bitplane, 148 lines, to line 255
+#LOW_H   = 148
+#SCROLL_BASE = 92         ; the scroller's middle line, inside the lower part
+#SPEED   = 2              ; pixels a frame
+
+; --- the copper lists: two, built once; the blitter fills their colours -----
+#COP_WORDS = 1400
+Dim copA.w(#COP_WORDS)
+Dim copB.w(#COP_WORDS)
+Global copPtr.l           ; where CopMove / CopWait write
+Global logoVals.l         ; byte offset, from a list's start, of the first logo line's COLOR07 value
+Global lowVals.l          ; ... of the first lower line's COLOR00 value (COLOR01's is 4 bytes on)
+
+; --- the lower bitplane, the scroller's text strip, the sprites ------------
+Dim screen.w(20 * #LOW_H)            ; 320 x 148, one bitplane
+Dim strip.w(22 * 16)                 ; 352 x 16: the text, sliding left
+Dim sprites.w(8 * 36)                ; eight sprites: POS, CTL, 16 x (A, B), 0, 0
+
+; --- what the frame shares with the interrupt -------------------------------
+Global frame.w, shown.w, swapReq.w
+Global textPos.w, charStep.w
+
+; --- the tune --------------------------------------------------------------
+Global musTick.w, musRow.w
+Global vol1.w, vol2.w, vol0.w
+
+; ======================================================================
+;  THE COPPER LIST
+; ======================================================================
+Procedure CopMove(reg.w, value.w)
+  PokeW(copPtr, reg)
+  PokeW(copPtr + 2, value)
+  copPtr = copPtr + 4
+EndProcedure
+
+Procedure CopWait(line.w, hpos.w)
+  PokeW(copPtr, ((line & $FF) << 8) | (hpos & $FE) | 1)
+  PokeW(copPtr + 2, $FFFE)
+  copPtr = copPtr + 4
+EndProcedure
+
+; A long in two MOVEs: the high word to reg, the low word to reg + 2.
+Procedure CopMoveL(reg.w, value.l)
+  CopMove(reg, (value >> 16) & $FFFF)
+  CopMove(reg + 2, value & $FFFF)
+EndProcedure
+
+Procedure BuildCopper(list.l)
+  Protected i.w, base.l
+  copPtr = list
+  base = list
+  ; the display: 320 x 256 PAL lowres
+  CopMove($08E, $2C81)                ; DIWSTRT
+  CopMove($090, $2CC1)                ; DIWSTOP
+  CopMove($092, $0038)                ; DDFSTRT
+  CopMove($094, $00D0)                ; DDFSTOP
+  CopMove($100, $3200)                ; BPLCON0: three bitplanes, colour
+  CopMove($102, 0)                    ; BPLCON1
+  CopMove($104, $0024)                ; BPLCON2: the sprites in front
+  CopMove($108, 0)                    ; BPL1MOD
+  CopMove($10A, 0)                    ; BPL2MOD
+  CopMoveL($0E0, ?LogoPlanes)
+  CopMoveL($0E4, ?LogoPlanes + #LOGO_PLANE_BYTES)
+  CopMoveL($0E8, ?LogoPlanes + #LOGO_PLANE_BYTES * 2)
+  For i = 0 To 7
+    CopMoveL($120 + i * 4, @sprites(i * 36))
+  Next
+  ; the logo's colours 1 - 7, and every sprite pair's three colours
+  For i = 1 To 7
+    CopMove($180 + i * 2, PeekW(?LogoPalette + i * 2))
+  Next
+  For i = 0 To 3
+    CopMove($1A2 + i * 8, PeekW(?BallColours))
+    CopMove($1A4 + i * 8, PeekW(?BallColours + 2))
+    CopMove($1A6 + i * 8, PeekW(?BallColours + 4))
+  Next
+  CopMove($180, $000)
+  ; the logo: on each line, COLOR07 (its highlight) - filled by the blitter
+  logoVals = copPtr - base + 6
+  For i = 0 To 63
+    CopWait(#LOGO_Y + i, 6)
+    CopMove($18E, $FFF)
+  Next
+  ; the end of line 107: the lower part is one bitplane, the scroller's
+  CopWait(#LOW_Y - 1, $E0)
+  CopMove($100, $1200)
+  CopMoveL($0E0, @screen(0))
+  ; the lower part: on each line, COLOR00 (the bars) and COLOR01 (the text)
+  lowVals = copPtr - base + 6
+  For i = 0 To #LOW_H - 1
+    CopWait(#LOW_Y + i, 6)
+    CopMove($180, $000)
+    CopMove($182, $FFF)
+  Next
+  CopWait(255, $E0)
+  CopMove($180, $000)
+  CopMove($182, $000)
+  CopWait(255, $FE)                   ; nothing more this frame
+  PokeW(copPtr, $FFFF)
+  PokeW(copPtr + 2, $FFFE)
+EndProcedure
+
+; ======================================================================
+;  THE BLITTER
+; ======================================================================
+; A column of colours into a copper list: Lines words from Src to the MOVE
+; values at Dst, one every Stride bytes.
+Procedure BlitColumn(src.l, dst.l, lines.w, stride.w)
+  AmigaWaitBlit()
+  PokeW(#BLTCON0, $09F0)              ; A to D
+  PokeW(#BLTCON1, 0)
+  PokeW(#BLTAFWM, $FFFF)
+  PokeW(#BLTALWM, $FFFF)
+  PokeL(#BLTAPTH, src)
+  PokeL(#BLTDPTH, dst)
+  PokeW(#BLTAMOD, 0)
+  PokeW(#BLTDMOD, stride - 2)
+  PokeW(#BLTSIZE, (lines << 6) | 1)
+EndProcedure
+
+; The same column filled with one colour.
+Procedure BlitFill(colour.w, dst.l, lines.w, stride.w)
+  AmigaWaitBlit()
+  PokeW(#BLTCON0, $01F0)              ; D = A, A from BLTADAT
+  PokeW(#BLTCON1, 0)
+  PokeW(#BLTAFWM, $FFFF)
+  PokeW(#BLTALWM, $FFFF)
+  PokeW(#BLTADAT, colour)
+  PokeL(#BLTDPTH, dst)
+  PokeW(#BLTDMOD, stride - 2)
+  PokeW(#BLTSIZE, (lines << 6) | 1)
+EndProcedure
+
+; This frame's colours, into the copper list that is not on the screen.
+Procedure UpdateCopper(list.l, t.w)
+  Protected k.w, y.w, s.w
+  ; the bars: the background, then three bars on a sine
+  BlitFill($002, list + lowVals, #LOW_H, 12)
+  For k = 0 To 2
+    s = PeekB(?Sine + ((t * 2 + k * 85) & 255))
+    y = 62 + (s * 60) / 127
+    BlitColumn(?BarGrad + k * 32, list + lowVals + y * 12, 16, 12)
+  Next
+  ; the scroller's rainbow, and the logo's shimmer
+  BlitColumn(?Rainbow + ((t * 3) & 255) * 2, list + lowVals + 4, #LOW_H, 12)
+  BlitColumn(?Shimmer + (t & 127) * 2, list + logoVals, 64, 8)
+EndProcedure
+
+; The scroller: slide the strip left, feed it a character every 16 pixels,
+; clear the band and blit the strip onto it in twenty columns on a sine.
+Procedure UpdateScroller(t.w)
+  Protected c.w, g.w, col.w, y.w, s.w, last.l
+  ; slide the strip left by #SPEED: descending mode, shift #SPEED
+  last = @strip(22 * 16 - 1)
+  AmigaWaitBlit()
+  PokeW(#BLTCON0, $09F0 | (#SPEED << 12))
+  PokeW(#BLTCON1, $0002)              ; DESC
+  PokeW(#BLTAFWM, $FFFF)
+  PokeW(#BLTALWM, $FFFF)
+  PokeL(#BLTAPTH, last)
+  PokeL(#BLTDPTH, last)
+  PokeW(#BLTAMOD, 0)
+  PokeW(#BLTDMOD, 0)
+  PokeW(#BLTSIZE, (16 << 6) | 22)
+  ; every sixteen pixels the next character goes in at x = 320
+  charStep = charStep + #SPEED
+  If charStep >= 16
+    charStep = 0
+    c = PeekB(?ScrollText + textPos)
+    If c = 0
+      textPos = 0
+      c = PeekB(?ScrollText)
+    EndIf
+    textPos = textPos + 1
+    g = PeekB(?FontMap + c - 32)
+    AmigaWaitBlit()
+    PokeW(#BLTCON0, $09F0)
+    PokeW(#BLTCON1, 0)
+    PokeL(#BLTAPTH, ?Font + g * 32)
+    PokeL(#BLTDPTH, @strip(20))
+    PokeW(#BLTAMOD, 0)
+    PokeW(#BLTDMOD, 42)
+    PokeW(#BLTSIZE, (16 << 6) | 1)
+  EndIf
+  ; clear the band the columns move in
+  AmigaWaitBlit()
+  PokeW(#BLTCON0, $0100)              ; D = 0
+  PokeW(#BLTCON1, 0)
+  PokeL(#BLTDPTH, @screen((#SCROLL_BASE - 32) * 20))
+  PokeW(#BLTDMOD, 0)
+  PokeW(#BLTSIZE, (80 << 6) | 20)
+  ; twenty columns, each on the sine
+  AmigaWaitBlit()
+  PokeW(#BLTCON0, $09F0)
+  PokeW(#BLTAMOD, 42)
+  PokeW(#BLTDMOD, 38)
+  For col = 0 To 19
+    s = PeekB(?Sine + ((t * 4 + col * 12) & 255))
+    y = #SCROLL_BASE - 8 + (s * 24) / 127
+    AmigaWaitBlit()
+    PokeL(#BLTAPTH, @strip(col))
+    PokeL(#BLTDPTH, @screen(y * 20 + col))
+    PokeW(#BLTSIZE, (16 << 6) | 1)
+  Next
+EndProcedure
+
+; ======================================================================
+;  THE SPRITES
+; ======================================================================
+Procedure SetupSprites()
+  Protected s.w, i.w, b.w
+  For s = 0 To 7
+    b = s * 36
+    For i = 0 To 31
+      sprites(b + 2 + i) = PeekW(?Ball + i * 2)
+    Next
+    sprites(b + 34) = 0
+    sprites(b + 35) = 0
+  Next
+EndProcedure
+
+; A Lissajous path: x and y on two sines at different rates.
+Procedure UpdateSprites(t.w)
+  Protected s.w, x.w, y.w, h.w, v.w, vs.w, b.w
+  For s = 0 To 7
+    x = PeekB(?Sine + ((t * 2 + s * 32) & 255))
+    y = PeekB(?Sine + ((t * 3 + s * 32 + 64) & 255))
+    h = $80 + 152 + (x * 140) / 127
+    v = #LOW_Y + 60 + (y * 50) / 127
+    vs = v + 16
+    b = s * 36
+    sprites(b) = ((v & $FF) << 8) | ((h >> 1) & $FF)
+    sprites(b + 1) = ((vs & $FF) << 8) | ((v >> 6) & 4) | ((vs >> 7) & 2) | (h & 1)
+  Next
+EndProcedure
+
+; ======================================================================
+;  THE TUNE (played from the vertical-blank interrupt)
+; ======================================================================
+Procedure MusicStart()
+  ; the three melodic channels loop their one-cycle waves for ever; a note
+  ; only changes the period and the volume
+  PokeL(#AUD0LCH, ?WaveSaw)    : PokeW(#AUD0LEN, 32) : PokeW(#AUD0VOL, 0) : PokeW(#AUD0PER, 400)
+  PokeL(#AUD1LCH, ?WaveSquare) : PokeW(#AUD1LEN, 8)  : PokeW(#AUD1VOL, 0) : PokeW(#AUD1PER, 400)
+  PokeL(#AUD2LCH, ?WavePulse)  : PokeW(#AUD2LEN, 16) : PokeW(#AUD2VOL, 0) : PokeW(#AUD2PER, 400)
+  PokeL(#AUD3LCH, ?WaveSilence) : PokeW(#AUD3LEN, 2) : PokeW(#AUD3VOL, 0) : PokeW(#AUD3PER, 400)
+  PokeW(#DMACON, #DMAF_SETCLR | #DMAF_AUD0 | #DMAF_AUD1 | #DMAF_AUD2 | #DMAF_AUD3)
+EndProcedure
+
+Procedure Drum(d.w)
+  Protected i.w
+  PokeW(#DMACON, #DMAF_AUD3)          ; stop the channel, so the new sample starts from its first byte
+  Select d
+    Case 2 : PokeL(#AUD3LCH, ?WaveKick)  : PokeW(#AUD3LEN, #WAVE_KICK_WORDS)  : PokeW(#AUD3PER, 160) : PokeW(#AUD3VOL, 64)
+    Case 3 : PokeL(#AUD3LCH, ?WaveSnare) : PokeW(#AUD3LEN, #WAVE_SNARE_WORDS) : PokeW(#AUD3PER, 180) : PokeW(#AUD3VOL, 52)
+    Case 4 : PokeL(#AUD3LCH, ?WaveHat)   : PokeW(#AUD3LEN, #WAVE_HAT_WORDS)   : PokeW(#AUD3PER, 124) : PokeW(#AUD3VOL, 28)
+  EndSelect
+  i = PeekW(#VHPOSR)                  ; let Paula see the channel off for a line
+  While (PeekW(#VHPOSR) & $FF00) = (i & $FF00)
+  Wend
+  AmigaAckInt(#INTF_AUD3)
+  PokeW(#INTENA, #INTF_SETCLR | #INTF_AUD3)
+  PokeW(#DMACON, #DMAF_SETCLR | #DMAF_AUD3)
+EndProcedure
+
+Procedure PlayRow()
+  Protected r.l, n.w
+  r = ?Song + musRow * 4
+  n = PeekB(r)
+  If n > 1
+    PokeW(#AUD0PER, PeekW(?Periods + n * 2) / 2)      ; a 64-byte wave
+    vol0 = 44
+  ElseIf n = 1
+    vol0 = 0
+  EndIf
+  n = PeekB(r + 1)
+  If n > 1
+    PokeW(#AUD1PER, PeekW(?Periods + n * 2) * 2)      ; a 16-byte wave
+    vol1 = 48
+  ElseIf n = 1
+    vol1 = 0
+  EndIf
+  n = PeekB(r + 2)
+  If n > 1
+    PokeW(#AUD2PER, PeekW(?Periods + n * 2))          ; a 32-byte wave
+    vol2 = 30
+  EndIf
+  n = PeekB(r + 3)
+  If n > 1
+    Drum(n)
+  EndIf
+  musRow = musRow + 1
+  If musRow >= #SONG_ROWS : musRow = 0 : EndIf
+EndProcedure
+
+Procedure MusicFrame()
+  musTick = musTick + 1
+  If musTick >= 6
+    musTick = 0
+    PlayRow()
+  EndIf
+  ; the envelopes: the lead fades to a sustain, the chords pluck, the bass holds
+  If vol1 > 24 : vol1 = vol1 - 1 : EndIf
+  If vol2 > 0 : vol2 = vol2 - 2 : EndIf
+  If vol2 < 0 : vol2 = 0 : EndIf
+  PokeW(#AUD0VOL, vol0)
+  PokeW(#AUD1VOL, vol1)
+  PokeW(#AUD2VOL, vol2)
+EndProcedure
+
+; ======================================================================
+;  THE INTERRUPTS
+; ======================================================================
+ProcedureInterrupt Level3()
+  If PeekW(#INTREQR) & #INTF_VERTB
+    ; a new frame: show the list the main loop finished, start it at once
+    If swapReq
+      shown = 1 - shown
+      If shown
+        PokeL(#COP1LCH, @copB(0))
+      Else
+        PokeL(#COP1LCH, @copA(0))
+      EndIf
+      PokeW(#COPJMP1, 0)
+      swapReq = 0
+    EndIf
+    frame = frame + 1
+    MusicFrame()
+    AmigaAckInt(#INTF_VERTB)
+  EndIf
+  If PeekW(#INTREQR) & #INTF_COPER
+    AmigaAckInt(#INTF_COPER)
+  EndIf
+  If PeekW(#INTREQR) & #INTF_BLIT
+    AmigaAckInt(#INTF_BLIT)
+  EndIf
+EndProcedure
+
+; Paula has started the drum: after this pass it plays four bytes of
+; silence, for ever, until the next drum - and asks for no more interrupts.
+ProcedureInterrupt Level4()
+  If PeekW(#INTREQR) & #INTF_AUD3
+    PokeL(#AUD3LCH, ?WaveSilence)
+    PokeW(#AUD3LEN, 2)
+    PokeW(#INTENA, #INTF_AUD3)
+    AmigaAckInt(#INTF_AUD3)
+  EndIf
+  If PeekW(#INTREQR) & (#INTF_AUD0 | #INTF_AUD1 | #INTF_AUD2)
+    AmigaAckInt(#INTF_AUD0 | #INTF_AUD1 | #INTF_AUD2)
+  EndIf
+EndProcedure
+
+; ======================================================================
+;  MAIN
+; ======================================================================
+Procedure Main()
+  Protected seen.w, t.w, list.l
+  BuildCopper(@copA(0))
+  BuildCopper(@copB(0))
+  SetupSprites()
+  UpdateSprites(0)
+  PokeL(#COP1LCH, @copA(0))
+  PokeW(#COPJMP1, 0)
+  shown = 0
+  MusicStart()
+  PokeW(#DMACON, #DMAF_SETCLR | #DMAF_MASTER | #DMAF_RASTER | #DMAF_COPPER | #DMAF_BLITTER | #DMAF_SPRITE)
+  PokeW(#INTENA, #INTF_SETCLR | #INTF_INTEN | #INTF_VERTB)
+  EnableInterrupts
+  Repeat
+    While frame = seen : Wend
+    seen = frame
+    t = t + 1
+    ; the list that is not on the screen
+    If shown
+      list = @copA(0)
+    Else
+      list = @copB(0)
+    EndIf
+    UpdateCopper(list, t)
+    UpdateScroller(t)
+    UpdateSprites(t)
+    swapReq = 1
+  ForEver
+EndProcedure
+
+Main()
