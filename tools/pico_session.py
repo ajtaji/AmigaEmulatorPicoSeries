@@ -28,6 +28,7 @@ def main():
     ap.add_argument('--at', type=float, default=10)
     ap.add_argument('--keys', default='')
     ap.add_argument('--log', default='')
+    ap.add_argument('--unpaced', action='store_true', help="send 'f' at the start: run as fast as the board can")
     ap.add_argument('--prof', type=float, default=0, help='ask for a profile (p) this many seconds in')
     ap.add_argument('--dump', default='', help='write chip RAM (big-endian) here when --dump-frame has run')
     ap.add_argument('--dump-frame', type=int, default=400)
@@ -53,6 +54,7 @@ def main():
     aud_wr = 0
     dump_sent = False
     prof_sent = False
+    unpaced_sent = False
     while time.time() - t0 < a.seconds:
         if a.shot and not asked and time.time() - t0 >= a.at:
             port.write(b's')
@@ -62,6 +64,9 @@ def main():
                 port.write(k.encode())
                 time.sleep(0.15)
             keys_sent = True
+        if a.unpaced and not unpaced_sent and time.time() - t0 >= 0.3:
+            port.write(b'f')
+            unpaced_sent = True
         if a.prof and not prof_sent and time.time() - t0 >= a.prof:
             port.write(b'p')
             prof_sent = True

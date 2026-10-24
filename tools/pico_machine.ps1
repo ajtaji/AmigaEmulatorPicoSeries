@@ -21,6 +21,7 @@ param(
     [string]$Source = '',
     [switch]$Speaker,
     [int]$Prof = 0,
+    [switch]$Unpaced,
     [int]$DumpFrame = 400
 )
 $ErrorActionPreference = 'Stop'
@@ -76,6 +77,7 @@ try {
     if ($Shot) { $args2 += @('--shot', $Shot, '--at', $ShotAt) }
     if ($Dump) { $args2 += @('--dump', $Dump, '--dump-frame', $DumpFrame) }
     if ($Prof) { $args2 += @('--prof', $Prof) }
+    if ($Unpaced) { $args2 += @('--unpaced') }
     & py -3 (Join-Path $PSScriptRoot 'pico_session.py') @args2
 } finally {
     if ($spk) {

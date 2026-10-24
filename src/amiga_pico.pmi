@@ -56,12 +56,15 @@ CompilerIf #AMIGA_AUDIO = 1
   XIncludeFile "audio_bt.pmi"
 CompilerEndIf
 
+Global Unpaced.i                  ; 'f': run as fast as the board can (for measuring headroom)
 Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i, ProfFrom.i = -1, SumEvery.i
 Global Dim SerBuf.a(256)
 ; the low #CHIP_SRAM_KB of chip RAM lives in SRAM (from the board's wrapper): the
 ; emulated DMA streams through the PSRAM's 16 KB cache and evicts the CPU's work
 ; there, so what a program keeps low runs at SRAM speed
-Global Dim ChipSram.l(#CHIP_SRAM_KB * 256)
+CompilerIf #CHIP_SRAM_KB > 0
+  Global Dim ChipSram.l(#CHIP_SRAM_KB * 256)
+CompilerEndIf
 Global SerLen.i
 
 Procedure HexDigit(v.i)
@@ -228,6 +231,9 @@ Procedure Commands()
     ElseIf c = 100
       ; d + four hex digits: dump chip RAM when that frame has run (to diff against amiga_cli --dump-chip)
       DumpAt = (HexIn(RxWait()) << 12) | (HexIn(RxWait()) << 8) | (HexIn(RxWait()) << 4) | HexIn(RxWait())
+    ElseIf c = 102
+      ; f: paced to PAL (the default) / as fast as it goes
+      Unpaced = 1 - Unpaced
     ElseIf c = 99
       ; c: the picture checksum one frame in ten on (costs the drawing of that frame) / off
       SumEvery = 1 - SumEvery
@@ -244,7 +250,7 @@ Procedure Commands()
 EndProcedure
 
 Procedure Main()
-  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i
+  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i, fs.i, fw.i, fmax.i, late.i, lateAll.i
   SafetyBoot()
   ClockInitKhz(#CLOCK_KHZ)
   PokeL($E000EDFC, PeekL($E000EDFC) | $01000000)    ; DEMCR.TRCENA
@@ -271,7 +277,11 @@ Procedure Main()
     ForEver
   EndIf
   ChipMask = $7FFFF
-  ChipSetHost(@ChipSram(0), #CHIP_SRAM_KB * 1024, #PSRAM_BASE + #PS_CHIP + #CHIP_SRAM_KB * 1024)
+  CompilerIf #CHIP_SRAM_KB > 0
+    ChipSetHost(@ChipSram(0), #CHIP_SRAM_KB * 1024, #PSRAM_BASE + #PS_CHIP + #CHIP_SRAM_KB * 1024)
+  CompilerElse
+    ChipSetHost(#PSRAM_BASE + #PS_CHIP, 0, #PSRAM_BASE + #PS_CHIP)
+  CompilerEndIf
   AmigaSlowHost = #PSRAM_BASE + #PS_SLOW
   AmigaSlowBytes = $80000
   For k = 0 To $FFFFC Step 4
@@ -313,7 +323,7 @@ Procedure Main()
     If AudioBegin(?Speaker)
       If LaunchCore1()
         PokeL(@Core1Go, 1)
-        Say("Bluetooth: playing; the machine is paced to 50 frames a second")
+        Say("Bluetooth: playing")
       Else
         Say("Bluetooth: core 1 did not start; running silent")
         AudioRunning = 0
@@ -336,7 +346,17 @@ Procedure Main()
     FrameSum = 0
     ; the picture is drawn only for a picture asked for, and with c one frame in ten (the checksum)
     DispDrawOn = Bool(ShotNow Or (SumEvery > 0 And (FrameCount % 10) = 0))
+    fs = Micros()
     AmigaRunFrame()
+    ; the frame's own work, in microseconds: PAL gives it 20,000
+    fw = Micros() - fs
+    If fw > fmax
+      fmax = fw
+    EndIf
+    If fw > 20000
+      late = late + 1
+      lateAll = lateAll + 1
+    EndIf
     LastFrameSum = FrameSum
     If ShotNow
       ShotNow = 0
@@ -361,19 +381,19 @@ Procedure Main()
       DumpAt = 0
     EndIf
     frames = frames + 1
-    CompilerIf #AMIGA_AUDIO = 1
-      ; with a speaker the sound sets the pace: PAL's 50 frames a second, no faster
-      If AudioRunning
-        pace = pace + 20000
-        While Micros() - pace < 0
-          UsbSerialTask()
-          SafetyPet()
-        Wend
-        If Micros() - pace > 100000
-          pace = Micros()     ; behind (a heavy frame): do not race to catch up
-        EndIf
+    ; the pace of a real A500: PAL's 50 frames a second ('f' turns it off to measure headroom)
+    If Unpaced = 0
+      pace = pace + 20000
+      While Micros() - pace < 0
+        UsbSerialTask()
+        SafetyPet()
+      Wend
+      If Micros() - pace > 100000
+        pace = Micros()     ; behind (a heavy frame): do not race to catch up
       EndIf
-    CompilerEndIf
+    Else
+      pace = Micros()
+    EndIf
     UsbSerialTask()
     SafetyPet()
     Commands()
@@ -394,6 +414,14 @@ Procedure Main()
       Num(DrvTrack(0))
       Say(" motor=")
       Num(DrvMotor(0))
+      Say(" work max us=")
+      Num(fmax)
+      Say(" late=")
+      Num(late)
+      Say(" late total=")
+      Num(lateAll)
+      fmax = 0
+      late = 0
       CompilerIf #AMIGA_AUDIO = 1
         If AudioRunning
           Say(" bt live=")

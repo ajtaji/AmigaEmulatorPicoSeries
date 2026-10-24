@@ -1,16 +1,18 @@
 #!/bin/bash
-# The PureMetal demo on the Feather: speed, the time profile, and chip RAM at
+# A program on a PSRAM board: speed, the time profile, and chip RAM at
 # frame 1000 compared byte for byte with the PC's (amiga_cli --dump-chip).
-#   tools/pico_demo_check.sh [rom]      (default demo/PureMetalDemo.rom)
+#   tools/pico_demo_check.sh [rom] [port] [board]   (default: the demo on COM20, the Feather)
 cd "$(dirname "$0")/.."
 rom=${1:-demo/PureMetalDemo.rom}
+port=${2:-COM20}         # COM16 picoplus2w for the Pico Plus 2 W
+board=${3:-feather2350}
 T=$(cygpath -w "${TEMP:-/tmp}")
 # no stale result can pass: both dumps are made fresh by this run or the check fails
 rm -f "$(cygpath -u "$T")"/chip_pc.bin* "$(cygpath -u "$T")"/chip_pico.bin*
 # the PC side at the Picos' 48 kHz, so Paula's samples line up one for one
 [ desktop/amiga_cli_48k.exe -nt desktop/amiga_cli.exe ] || (cd desktop && powershell.exe -NoProfile -Command "& 'C:\Program Files\PureBasic\Compilers\pbcompilerc.exe' 'amiga_cli.pb' /CONSOLE /OPTIMIZER /THREAD /CONSTANT 'AUD_RATE_48K=1' /EXE 'amiga_cli_48k.exe'" > /dev/null)
 desktop/amiga_cli_48k.exe --rom "$rom" --frames 1000 --dump-chip "$T\chip_pc.bin" > /dev/null
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w tools/pico_machine.ps1)" -Port COM20 -Board feather2350 \
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w tools/pico_machine.ps1)" -Port $port -Board $board \
   -Rom "$rom" -Seconds 40 -Prof 6 -Dump "$T\chip_pico.bin" -DumpFrame 1000 -Minutes 3 2>&1 | grep -E "PROF|^frames|chip RAM|FATAL|ERROR|PM[0-9]" | head -6
 py -3 - "$T\chip_pc.bin" "$T\chip_pico.bin" <<'PY'
 import sys, os

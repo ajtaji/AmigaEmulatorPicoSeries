@@ -3815,6 +3815,136 @@ Ctl3F:
   Goto IllegalOp
 
 MoveB0:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    lsrs r1, r0, #3
+    movs r2, #7
+    ands r1, r2
+    cmp r1, #0
+    beq fp_moveb0_Dn_147
+    cmp r1, #5
+    beq fp_moveb0_d16_148
+    movs r1, #63
+    ands r1, r0
+    cmp r1, #60
+    beq fp_moveb0_imm_149
+    b fp_moveb0_fallback
+  fp_moveb0_Dn_147:
+    movs r3, r0
+    movs r1, #7
+    ands r3, r1
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    ldrb r2, [r3]
+    lsrs r3, r0, #9
+    movs r1, #7
+    ands r3, r1
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    strb r2, [r3]
+    lsls r1, r2, #24
+    mov r8, r1
+    mov r9, r1
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #4
+    adds r4, #2
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_moveb0_d16_148:
+    movs r5, r0
+    movs r1, #7
+    ands r5, r1
+    adds r5, #8
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r5, [r5]
+    movs r1, #2
+    ldrsh r1, [r4, r1]
+    adds r5, r5, r1
+    lsls r3, r5, #8
+    lsrs r3, r3, #20
+    lsls r3, r3, #2
+    ldr r1, =global_pager
+    ldr r3, [r1, r3]
+    cmp r3, #0
+    beq fp_moveb0_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    movs r2, #1
+    eors r1, r2
+    adds r3, r3, r1
+    ldrb r2, [r3]
+    lsrs r3, r0, #9
+    movs r1, #7
+    ands r3, r1
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    strb r2, [r3]
+    lsls r1, r2, #24
+    mov r8, r1
+    mov r9, r1
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #12
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_moveb0_imm_149:
+    movs r1, #2
+    ldrb r2, [r4, r1]
+    lsrs r3, r0, #9
+    movs r1, #7
+    ands r3, r1
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    strb r2, [r3]
+    lsls r1, r2, #24
+    mov r8, r1
+    mov r9, r1
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #8
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_moveb0_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $38) = 0
@@ -4115,15 +4245,15 @@ MoveW0:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_movew0_Dn_103
+    beq fp_movew0_Dn_113
     cmp r1, #5
-    beq fp_movew0_d16_104
+    beq fp_movew0_d16_114
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_movew0_imm_105
+    beq fp_movew0_imm_115
     b fp_movew0_fallback
-  fp_movew0_Dn_103:
+  fp_movew0_Dn_113:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -4157,7 +4287,7 @@ MoveW0:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movew0_d16_104:
+  fp_movew0_d16_114:
     movs r5, r0
     movs r1, #7
     ands r5, r1
@@ -4177,19 +4307,19 @@ MoveW0:
     ldr r1, =global_pager
     ldr r3, [r1, r3]
     cmp r3, #0
-    beq fp_src_hook_106
+    beq fp_src_hook_116
     lsls r1, r5, #8
     lsrs r1, r1, #8
     adds r3, r3, r1
     ldrh r2, [r3]
-    b fp_src_join_107
-  fp_src_hook_106:
+    b fp_src_join_117
+  fp_src_hook_116:
     lsls r0, r5, #8
     lsrs r0, r0, #8
     bl m68khookrd16
     uxth r2, r0
     ldrh r0, [r4]
-  fp_src_join_107:
+  fp_src_join_117:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -4216,7 +4346,7 @@ MoveW0:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movew0_imm_105:
+  fp_movew0_imm_115:
     movs r1, #2
     ldrh r2, [r4, r1]
     lsrs r3, r0, #9
@@ -4408,15 +4538,15 @@ MoveW5:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_movew5_Dn_116
+    beq fp_movew5_Dn_126
     cmp r1, #5
-    beq fp_movew5_d16_117
+    beq fp_movew5_d16_127
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_movew5_imm_118
+    beq fp_movew5_imm_128
     b fp_movew5_fallback
-  fp_movew5_Dn_116:
+  fp_movew5_Dn_126:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -4467,7 +4597,7 @@ MoveW5:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movew5_d16_117:
+  fp_movew5_d16_127:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -4535,7 +4665,7 @@ MoveW5:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movew5_imm_118:
+  fp_movew5_imm_128:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -4763,17 +4893,17 @@ MoveL0:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_movel0_Dn_108
+    beq fp_movel0_Dn_118
     cmp r1, #5
-    beq fp_movel0_d16_109
+    beq fp_movel0_d16_119
     cmp r1, #1
-    beq fp_movel0_An_111
+    beq fp_movel0_An_121
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_movel0_imm_110
+    beq fp_movel0_imm_120
     b fp_movel0_fallback
-  fp_movel0_Dn_108:
+  fp_movel0_Dn_118:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -4806,7 +4936,7 @@ MoveL0:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel0_d16_109:
+  fp_movel0_d16_119:
     movs r5, r0
     movs r1, #7
     ands r5, r1
@@ -4863,7 +4993,7 @@ MoveL0:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel0_imm_110:
+  fp_movel0_imm_120:
     movs r1, #2
     ldr r2, [r4, r1]
     movs r1, #16
@@ -4893,7 +5023,7 @@ MoveL0:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel0_An_111:
+  fp_movel0_An_121:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -4954,17 +5084,17 @@ MoveL1:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_movel1_Dn_112
+    beq fp_movel1_Dn_122
     cmp r1, #1
-    beq fp_movel1_An_113
+    beq fp_movel1_An_123
     cmp r1, #5
-    beq fp_movel1_d16_114
+    beq fp_movel1_d16_124
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_movel1_imm_115
+    beq fp_movel1_imm_125
     b fp_movel1_fallback
-  fp_movel1_Dn_112:
+  fp_movel1_Dn_122:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -4992,7 +5122,7 @@ MoveL1:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel1_An_113:
+  fp_movel1_An_123:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -5021,7 +5151,7 @@ MoveL1:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel1_d16_114:
+  fp_movel1_d16_124:
     movs r5, r0
     movs r1, #7
     ands r5, r1
@@ -5073,7 +5203,7 @@ MoveL1:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel1_imm_115:
+  fp_movel1_imm_125:
     movs r1, #2
     ldr r2, [r4, r1]
     movs r1, #16
@@ -5246,15 +5376,15 @@ MoveL5:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_movel5_Dn_119
+    beq fp_movel5_Dn_129
     cmp r1, #5
-    beq fp_movel5_d16_120
+    beq fp_movel5_d16_130
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_movel5_imm_121
+    beq fp_movel5_imm_131
     b fp_movel5_fallback
-  fp_movel5_Dn_119:
+  fp_movel5_Dn_129:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -5312,7 +5442,7 @@ MoveL5:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel5_d16_120:
+  fp_movel5_d16_130:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -5394,7 +5524,7 @@ MoveL5:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_movel5_imm_121:
+  fp_movel5_imm_131:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -7259,6 +7389,89 @@ A111:
   NextOp()
 
 CLRW:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    lsrs r1, r0, #3
+    movs r2, #7
+    ands r1, r2
+    cmp r1, #0
+    beq fp_clrw_Dn_140
+    cmp r1, #5
+    beq fp_clrw_d16_141
+    b fp_clrw_fallback
+  fp_clrw_Dn_140:
+    movs r3, r0
+    movs r1, #7
+    ands r3, r1
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    movs r2, #0
+    strh r2, [r3]
+    movs r1, #0
+    mov r8, r1
+    mov r9, r1
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #4
+    adds r4, #2
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_clrw_d16_141:
+    movs r5, r0
+    movs r1, #7
+    ands r5, r1
+    adds r5, #8
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r5, [r5]
+    movs r1, #2
+    ldrsh r1, [r4, r1]
+    adds r5, r5, r1
+    lsls r3, r5, #31
+    bne fp_clrw_fallback
+    lsls r3, r5, #8
+    lsrs r3, r3, #20
+    lsls r3, r3, #2
+    ldr r1, =global_pagew
+    ldr r3, [r1, r3]
+    cmp r3, #0
+    beq fp_clrw_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r3, r3, r1
+    movs r2, #0
+    strh r2, [r3]
+    movs r1, #0
+    mov r8, r1
+    mov r9, r1
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #16
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_clrw_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $38) <> 0
@@ -7809,6 +8022,40 @@ A133:
   NextOp()
 
 SwapPea:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    movs r1, #56
+    tst r0, r1
+    bne fp_swappea_fallback
+    movs r3, #7
+    ands r3, r0
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    ldr r2, [r3]
+    movs r1, #16
+    rors r2, r1
+    str r2, [r3]
+    mov r8, r2
+    mov r9, r2
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #4
+    adds r4, #2
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_swappea_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $38) <> 0
@@ -7848,6 +8095,41 @@ C135:
   NextOp()
 
 ExtWMovemW:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    movs r1, #56
+    tst r0, r1
+    bne fp_extwmovemw_fallback
+    movs r3, #7
+    ands r3, r0
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    ldrb r2, [r3]
+    sxtb r2, r2
+    strh r2, [r3]
+    uxth r2, r2
+    lsls r1, r2, #16
+    mov r8, r1
+    mov r9, r1
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #4
+    adds r4, #2
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_extwmovemw_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $38) <> 0
@@ -7938,6 +8220,39 @@ PRE137:
   NextOp()
 
 ExtLMovemL:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    movs r1, #56
+    tst r0, r1
+    bne fp_extlmoveml_fallback
+    movs r3, #7
+    ands r3, r0
+    lsls r3, r3, #2
+    ldr r1, =global_reg
+    adds r3, r3, r1
+    ldrh r2, [r3]
+    sxth r2, r2
+    str r2, [r3]
+    mov r8, r2
+    mov r9, r2
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    subs r6, #4
+    adds r4, #2
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_extlmoveml_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $38) <> 0
@@ -8269,6 +8584,60 @@ POST150:
   Goto LOOP152
 
 Misc4E:
+  ASM Uses PIP, CLeft, PEnd
+    ldrh r0, [r4]
+    ldr r1, =$4E75
+    cmp r0, r1
+    bne fp_rts_fallback
+    ldr r3, =global_reg
+    ldr r5, [r3, #60]
+    lsls r2, r5, #31
+    bne fp_rts_fallback
+    lsls r2, r5, #20
+    lsrs r2, r2, #21
+    ldr r1, =2047
+    cmp r2, r1
+    beq fp_rts_fallback
+    lsls r2, r5, #8
+    lsrs r2, r2, #20
+    lsls r2, r2, #2
+    ldr r1, =global_pager
+    ldr r2, [r1, r2]
+    cmp r2, #0
+    beq fp_rts_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r2, r2, r1
+    ldr r2, [r2]
+    movs r1, #16
+    rors r2, r1
+    lsls r1, r2, #31
+    bne fp_rts_fallback
+    adds r5, #4
+    str r5, [r3, #60]
+    ldr r1, =global_pbase
+    ldr r1, [r1]
+    adds r4, r1, r2
+    ldr r1, =global_pstart
+    ldr r1, [r1]
+    cmp r4, r1
+    bhs fp_rts_in
+    movs r1, #0
+    mov r11, r1
+  fp_rts_in:
+    subs r6, #16
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_rts_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   x = (op >> 3) & 7
@@ -8516,6 +8885,66 @@ OpRTR:
   NextOp()
 
 JSR:
+  ASM Uses PIP, CLeft, PEnd
+    ldrh r0, [r4]
+    ldr r1, =$4EB9
+    cmp r0, r1
+    bne fp_jsr_fallback
+    movs r1, #2
+    ldr r2, [r4, r1]
+    movs r1, #16
+    rors r2, r1
+    lsls r1, r2, #31
+    bne fp_jsr_fallback
+    ldr r3, =global_reg
+    ldr r5, [r3, #60]
+    subs r5, #4
+    lsls r0, r5, #31
+    bne fp_jsr_fallback
+    lsls r0, r5, #20
+    lsrs r0, r0, #21
+    ldr r1, =2047
+    cmp r0, r1
+    beq fp_jsr_fallback
+    lsls r0, r5, #8
+    lsrs r0, r0, #20
+    lsls r0, r0, #2
+    ldr r1, =global_pagew
+    ldr r0, [r1, r0]
+    cmp r0, #0
+    beq fp_jsr_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r0, r0, r1
+    str r5, [r3, #60]
+    ldr r1, =global_pbase
+    ldr r1, [r1]
+    subs r3, r4, r1
+    adds r3, #6
+    movs r5, #16
+    rors r3, r5
+    str r3, [r0]
+    adds r4, r1, r2
+    ldr r1, =global_pstart
+    ldr r1, [r1]
+    cmp r4, r1
+    bhs fp_jsr_in
+    movs r1, #0
+    mov r11, r1
+  fp_jsr_in:
+    subs r6, #20
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_jsr_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   EaRet = ?C153
@@ -10133,11 +10562,11 @@ DB220:
 BRA:
   ASM Uses PIP, CLeft, PEnd
     ldrh r0, [r4]
-    b fp_bra_t_130
-  fp_bra_nt_131:
+    b fp_bra_t_150
+  fp_bra_nt_151:
     movs r1, #255
     ands r1, r0
-    beq fp_bra_w_132
+    beq fp_bra_w_152
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10150,7 +10579,7 @@ BRA:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bra_w_132:
+  fp_bra_w_152:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10163,16 +10592,16 @@ BRA:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bra_t_130:
+  fp_bra_t_150:
     movs r1, #255
     ands r1, r0
-    beq fp_bra_d_133
+    beq fp_bra_d_153
     sxtb r1, r0
-    b fp_bra_go_134
-  fp_bra_d_133:
+    b fp_bra_go_154
+  fp_bra_d_153:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bra_go_134:
+  fp_bra_go_154:
     lsls r2, r1, #31
     bne fp_bra_fallback
     adds r4, r4, r1
@@ -10180,10 +10609,10 @@ BRA:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bra_go_134_in
+    bhs fp_bra_go_154_in
     movs r2, #0
     mov r11, r2
-  fp_bra_go_134_in:
+  fp_bra_go_154_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10264,14 +10693,14 @@ BHI:
     ldrh r0, [r4]
     mov r1, r10
     cmp r1, #0
-    blt fp_bhi_nt_136
+    blt fp_bhi_nt_156
     mov r1, r8
     cmp r1, #0
-    bne fp_bhi_t_135
-  fp_bhi_nt_136:
+    bne fp_bhi_t_155
+  fp_bhi_nt_156:
     movs r1, #255
     ands r1, r0
-    beq fp_bhi_w_137
+    beq fp_bhi_w_157
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10284,7 +10713,7 @@ BHI:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bhi_w_137:
+  fp_bhi_w_157:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10297,16 +10726,16 @@ BHI:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bhi_t_135:
+  fp_bhi_t_155:
     movs r1, #255
     ands r1, r0
-    beq fp_bhi_d_138
+    beq fp_bhi_d_158
     sxtb r1, r0
-    b fp_bhi_go_139
-  fp_bhi_d_138:
+    b fp_bhi_go_159
+  fp_bhi_d_158:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bhi_go_139:
+  fp_bhi_go_159:
     lsls r2, r1, #31
     bne fp_bhi_fallback
     adds r4, r4, r1
@@ -10314,10 +10743,10 @@ BHI:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bhi_go_139_in
+    bhs fp_bhi_go_159_in
     movs r2, #0
     mov r11, r2
-  fp_bhi_go_139_in:
+  fp_bhi_go_159_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10369,14 +10798,14 @@ BLS:
     ldrh r0, [r4]
     mov r1, r10
     cmp r1, #0
-    blt fp_bls_t_140
+    blt fp_bls_t_160
     mov r1, r8
     cmp r1, #0
-    beq fp_bls_t_140
-  fp_bls_nt_141:
+    beq fp_bls_t_160
+  fp_bls_nt_161:
     movs r1, #255
     ands r1, r0
-    beq fp_bls_w_142
+    beq fp_bls_w_162
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10389,7 +10818,7 @@ BLS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bls_w_142:
+  fp_bls_w_162:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10402,16 +10831,16 @@ BLS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bls_t_140:
+  fp_bls_t_160:
     movs r1, #255
     ands r1, r0
-    beq fp_bls_d_143
+    beq fp_bls_d_163
     sxtb r1, r0
-    b fp_bls_go_144
-  fp_bls_d_143:
+    b fp_bls_go_164
+  fp_bls_d_163:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bls_go_144:
+  fp_bls_go_164:
     lsls r2, r1, #31
     bne fp_bls_fallback
     adds r4, r4, r1
@@ -10419,10 +10848,10 @@ BLS:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bls_go_144_in
+    bhs fp_bls_go_164_in
     movs r2, #0
     mov r11, r2
-  fp_bls_go_144_in:
+  fp_bls_go_164_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10474,11 +10903,11 @@ BCC:
     ldrh r0, [r4]
     mov r1, r10
     cmp r1, #0
-    bge fp_bcc_t_145
-  fp_bcc_nt_146:
+    bge fp_bcc_t_165
+  fp_bcc_nt_166:
     movs r1, #255
     ands r1, r0
-    beq fp_bcc_w_147
+    beq fp_bcc_w_167
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10491,7 +10920,7 @@ BCC:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bcc_w_147:
+  fp_bcc_w_167:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10504,16 +10933,16 @@ BCC:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bcc_t_145:
+  fp_bcc_t_165:
     movs r1, #255
     ands r1, r0
-    beq fp_bcc_d_148
+    beq fp_bcc_d_168
     sxtb r1, r0
-    b fp_bcc_go_149
-  fp_bcc_d_148:
+    b fp_bcc_go_169
+  fp_bcc_d_168:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bcc_go_149:
+  fp_bcc_go_169:
     lsls r2, r1, #31
     bne fp_bcc_fallback
     adds r4, r4, r1
@@ -10521,10 +10950,10 @@ BCC:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bcc_go_149_in
+    bhs fp_bcc_go_169_in
     movs r2, #0
     mov r11, r2
-  fp_bcc_go_149_in:
+  fp_bcc_go_169_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10576,11 +11005,11 @@ BCS:
     ldrh r0, [r4]
     mov r1, r10
     cmp r1, #0
-    blt fp_bcs_t_150
-  fp_bcs_nt_151:
+    blt fp_bcs_t_170
+  fp_bcs_nt_171:
     movs r1, #255
     ands r1, r0
-    beq fp_bcs_w_152
+    beq fp_bcs_w_172
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10593,7 +11022,7 @@ BCS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bcs_w_152:
+  fp_bcs_w_172:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10606,16 +11035,16 @@ BCS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bcs_t_150:
+  fp_bcs_t_170:
     movs r1, #255
     ands r1, r0
-    beq fp_bcs_d_153
+    beq fp_bcs_d_173
     sxtb r1, r0
-    b fp_bcs_go_154
-  fp_bcs_d_153:
+    b fp_bcs_go_174
+  fp_bcs_d_173:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bcs_go_154:
+  fp_bcs_go_174:
     lsls r2, r1, #31
     bne fp_bcs_fallback
     adds r4, r4, r1
@@ -10623,10 +11052,10 @@ BCS:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bcs_go_154_in
+    bhs fp_bcs_go_174_in
     movs r2, #0
     mov r11, r2
-  fp_bcs_go_154_in:
+  fp_bcs_go_174_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10678,11 +11107,11 @@ BNE:
     ldrh r0, [r4]
     mov r1, r8
     cmp r1, #0
-    bne fp_bne_t_155
-  fp_bne_nt_156:
+    bne fp_bne_t_175
+  fp_bne_nt_176:
     movs r1, #255
     ands r1, r0
-    beq fp_bne_w_157
+    beq fp_bne_w_177
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10695,7 +11124,7 @@ BNE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bne_w_157:
+  fp_bne_w_177:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10708,16 +11137,16 @@ BNE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bne_t_155:
+  fp_bne_t_175:
     movs r1, #255
     ands r1, r0
-    beq fp_bne_d_158
+    beq fp_bne_d_178
     sxtb r1, r0
-    b fp_bne_go_159
-  fp_bne_d_158:
+    b fp_bne_go_179
+  fp_bne_d_178:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bne_go_159:
+  fp_bne_go_179:
     lsls r2, r1, #31
     bne fp_bne_fallback
     adds r4, r4, r1
@@ -10725,10 +11154,10 @@ BNE:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bne_go_159_in
+    bhs fp_bne_go_179_in
     movs r2, #0
     mov r11, r2
-  fp_bne_go_159_in:
+  fp_bne_go_179_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10780,11 +11209,11 @@ BEQ:
     ldrh r0, [r4]
     mov r1, r8
     cmp r1, #0
-    beq fp_beq_t_160
-  fp_beq_nt_161:
+    beq fp_beq_t_180
+  fp_beq_nt_181:
     movs r1, #255
     ands r1, r0
-    beq fp_beq_w_162
+    beq fp_beq_w_182
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10797,7 +11226,7 @@ BEQ:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_beq_w_162:
+  fp_beq_w_182:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10810,16 +11239,16 @@ BEQ:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_beq_t_160:
+  fp_beq_t_180:
     movs r1, #255
     ands r1, r0
-    beq fp_beq_d_163
+    beq fp_beq_d_183
     sxtb r1, r0
-    b fp_beq_go_164
-  fp_beq_d_163:
+    b fp_beq_go_184
+  fp_beq_d_183:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_beq_go_164:
+  fp_beq_go_184:
     lsls r2, r1, #31
     bne fp_beq_fallback
     adds r4, r4, r1
@@ -10827,10 +11256,10 @@ BEQ:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_beq_go_164_in
+    bhs fp_beq_go_184_in
     movs r2, #0
     mov r11, r2
-  fp_beq_go_164_in:
+  fp_beq_go_184_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10883,11 +11312,11 @@ BVC:
     ldr r1, =global_fv
     ldr r1, [r1]
     cmp r1, #0
-    bge fp_bvc_t_165
-  fp_bvc_nt_166:
+    bge fp_bvc_t_185
+  fp_bvc_nt_186:
     movs r1, #255
     ands r1, r0
-    beq fp_bvc_w_167
+    beq fp_bvc_w_187
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -10900,7 +11329,7 @@ BVC:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bvc_w_167:
+  fp_bvc_w_187:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -10913,16 +11342,16 @@ BVC:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bvc_t_165:
+  fp_bvc_t_185:
     movs r1, #255
     ands r1, r0
-    beq fp_bvc_d_168
+    beq fp_bvc_d_188
     sxtb r1, r0
-    b fp_bvc_go_169
-  fp_bvc_d_168:
+    b fp_bvc_go_189
+  fp_bvc_d_188:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bvc_go_169:
+  fp_bvc_go_189:
     lsls r2, r1, #31
     bne fp_bvc_fallback
     adds r4, r4, r1
@@ -10930,10 +11359,10 @@ BVC:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bvc_go_169_in
+    bhs fp_bvc_go_189_in
     movs r2, #0
     mov r11, r2
-  fp_bvc_go_169_in:
+  fp_bvc_go_189_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -10986,11 +11415,11 @@ BVS:
     ldr r1, =global_fv
     ldr r1, [r1]
     cmp r1, #0
-    blt fp_bvs_t_170
-  fp_bvs_nt_171:
+    blt fp_bvs_t_190
+  fp_bvs_nt_191:
     movs r1, #255
     ands r1, r0
-    beq fp_bvs_w_172
+    beq fp_bvs_w_192
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11003,7 +11432,7 @@ BVS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bvs_w_172:
+  fp_bvs_w_192:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11016,16 +11445,16 @@ BVS:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bvs_t_170:
+  fp_bvs_t_190:
     movs r1, #255
     ands r1, r0
-    beq fp_bvs_d_173
+    beq fp_bvs_d_193
     sxtb r1, r0
-    b fp_bvs_go_174
-  fp_bvs_d_173:
+    b fp_bvs_go_194
+  fp_bvs_d_193:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bvs_go_174:
+  fp_bvs_go_194:
     lsls r2, r1, #31
     bne fp_bvs_fallback
     adds r4, r4, r1
@@ -11033,10 +11462,10 @@ BVS:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bvs_go_174_in
+    bhs fp_bvs_go_194_in
     movs r2, #0
     mov r11, r2
-  fp_bvs_go_174_in:
+  fp_bvs_go_194_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11088,11 +11517,11 @@ BPL:
     ldrh r0, [r4]
     mov r1, r9
     cmp r1, #0
-    bge fp_bpl_t_175
-  fp_bpl_nt_176:
+    bge fp_bpl_t_195
+  fp_bpl_nt_196:
     movs r1, #255
     ands r1, r0
-    beq fp_bpl_w_177
+    beq fp_bpl_w_197
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11105,7 +11534,7 @@ BPL:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bpl_w_177:
+  fp_bpl_w_197:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11118,16 +11547,16 @@ BPL:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bpl_t_175:
+  fp_bpl_t_195:
     movs r1, #255
     ands r1, r0
-    beq fp_bpl_d_178
+    beq fp_bpl_d_198
     sxtb r1, r0
-    b fp_bpl_go_179
-  fp_bpl_d_178:
+    b fp_bpl_go_199
+  fp_bpl_d_198:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bpl_go_179:
+  fp_bpl_go_199:
     lsls r2, r1, #31
     bne fp_bpl_fallback
     adds r4, r4, r1
@@ -11135,10 +11564,10 @@ BPL:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bpl_go_179_in
+    bhs fp_bpl_go_199_in
     movs r2, #0
     mov r11, r2
-  fp_bpl_go_179_in:
+  fp_bpl_go_199_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11190,11 +11619,11 @@ BMI:
     ldrh r0, [r4]
     mov r1, r9
     cmp r1, #0
-    blt fp_bmi_t_180
-  fp_bmi_nt_181:
+    blt fp_bmi_t_200
+  fp_bmi_nt_201:
     movs r1, #255
     ands r1, r0
-    beq fp_bmi_w_182
+    beq fp_bmi_w_202
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11207,7 +11636,7 @@ BMI:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bmi_w_182:
+  fp_bmi_w_202:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11220,16 +11649,16 @@ BMI:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bmi_t_180:
+  fp_bmi_t_200:
     movs r1, #255
     ands r1, r0
-    beq fp_bmi_d_183
+    beq fp_bmi_d_203
     sxtb r1, r0
-    b fp_bmi_go_184
-  fp_bmi_d_183:
+    b fp_bmi_go_204
+  fp_bmi_d_203:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bmi_go_184:
+  fp_bmi_go_204:
     lsls r2, r1, #31
     bne fp_bmi_fallback
     adds r4, r4, r1
@@ -11237,10 +11666,10 @@ BMI:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bmi_go_184_in
+    bhs fp_bmi_go_204_in
     movs r2, #0
     mov r11, r2
-  fp_bmi_go_184_in:
+  fp_bmi_go_204_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11295,11 +11724,11 @@ BGE:
     mov r2, r9
     eors r1, r2
     cmp r1, #0
-    bge fp_bge_t_185
-  fp_bge_nt_186:
+    bge fp_bge_t_205
+  fp_bge_nt_206:
     movs r1, #255
     ands r1, r0
-    beq fp_bge_w_187
+    beq fp_bge_w_207
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11312,7 +11741,7 @@ BGE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bge_w_187:
+  fp_bge_w_207:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11325,16 +11754,16 @@ BGE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bge_t_185:
+  fp_bge_t_205:
     movs r1, #255
     ands r1, r0
-    beq fp_bge_d_188
+    beq fp_bge_d_208
     sxtb r1, r0
-    b fp_bge_go_189
-  fp_bge_d_188:
+    b fp_bge_go_209
+  fp_bge_d_208:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bge_go_189:
+  fp_bge_go_209:
     lsls r2, r1, #31
     bne fp_bge_fallback
     adds r4, r4, r1
@@ -11342,10 +11771,10 @@ BGE:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bge_go_189_in
+    bhs fp_bge_go_209_in
     movs r2, #0
     mov r11, r2
-  fp_bge_go_189_in:
+  fp_bge_go_209_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11400,11 +11829,11 @@ BLT:
     mov r2, r9
     eors r1, r2
     cmp r1, #0
-    blt fp_blt_t_190
-  fp_blt_nt_191:
+    blt fp_blt_t_210
+  fp_blt_nt_211:
     movs r1, #255
     ands r1, r0
-    beq fp_blt_w_192
+    beq fp_blt_w_212
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11417,7 +11846,7 @@ BLT:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_blt_w_192:
+  fp_blt_w_212:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11430,16 +11859,16 @@ BLT:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_blt_t_190:
+  fp_blt_t_210:
     movs r1, #255
     ands r1, r0
-    beq fp_blt_d_193
+    beq fp_blt_d_213
     sxtb r1, r0
-    b fp_blt_go_194
-  fp_blt_d_193:
+    b fp_blt_go_214
+  fp_blt_d_213:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_blt_go_194:
+  fp_blt_go_214:
     lsls r2, r1, #31
     bne fp_blt_fallback
     adds r4, r4, r1
@@ -11447,10 +11876,10 @@ BLT:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_blt_go_194_in
+    bhs fp_blt_go_214_in
     movs r2, #0
     mov r11, r2
-  fp_blt_go_194_in:
+  fp_blt_go_214_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11505,14 +11934,14 @@ BGT:
     mov r2, r9
     eors r1, r2
     cmp r1, #0
-    blt fp_bgt_nt_196
+    blt fp_bgt_nt_216
     mov r1, r8
     cmp r1, #0
-    bne fp_bgt_t_195
-  fp_bgt_nt_196:
+    bne fp_bgt_t_215
+  fp_bgt_nt_216:
     movs r1, #255
     ands r1, r0
-    beq fp_bgt_w_197
+    beq fp_bgt_w_217
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11525,7 +11954,7 @@ BGT:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bgt_w_197:
+  fp_bgt_w_217:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11538,16 +11967,16 @@ BGT:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_bgt_t_195:
+  fp_bgt_t_215:
     movs r1, #255
     ands r1, r0
-    beq fp_bgt_d_198
+    beq fp_bgt_d_218
     sxtb r1, r0
-    b fp_bgt_go_199
-  fp_bgt_d_198:
+    b fp_bgt_go_219
+  fp_bgt_d_218:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_bgt_go_199:
+  fp_bgt_go_219:
     lsls r2, r1, #31
     bne fp_bgt_fallback
     adds r4, r4, r1
@@ -11555,10 +11984,10 @@ BGT:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_bgt_go_199_in
+    bhs fp_bgt_go_219_in
     movs r2, #0
     mov r11, r2
-  fp_bgt_go_199_in:
+  fp_bgt_go_219_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -11613,14 +12042,14 @@ BLE:
     mov r2, r9
     eors r1, r2
     cmp r1, #0
-    blt fp_ble_t_200
+    blt fp_ble_t_220
     mov r1, r8
     cmp r1, #0
-    beq fp_ble_t_200
-  fp_ble_nt_201:
+    beq fp_ble_t_220
+  fp_ble_nt_221:
     movs r1, #255
     ands r1, r0
-    beq fp_ble_w_202
+    beq fp_ble_w_222
     subs r6, #8
     adds r4, #2
     cmp r6, #0
@@ -11633,7 +12062,7 @@ BLE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_ble_w_202:
+  fp_ble_w_222:
     subs r6, #12
     adds r4, #4
     cmp r6, #0
@@ -11646,16 +12075,16 @@ BLE:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_ble_t_200:
+  fp_ble_t_220:
     movs r1, #255
     ands r1, r0
-    beq fp_ble_d_203
+    beq fp_ble_d_223
     sxtb r1, r0
-    b fp_ble_go_204
-  fp_ble_d_203:
+    b fp_ble_go_224
+  fp_ble_d_223:
     movs r1, #2
     ldrsh r1, [r4, r1]
-  fp_ble_go_204:
+  fp_ble_go_224:
     lsls r2, r1, #31
     bne fp_ble_fallback
     adds r4, r4, r1
@@ -11663,10 +12092,10 @@ BLE:
     ldr r2, =global_pstart
     ldr r2, [r2]
     cmp r4, r2
-    bhs fp_ble_go_204_in
+    bhs fp_ble_go_224_in
     movs r2, #0
     mov r11, r2
-  fp_ble_go_204_in:
+  fp_ble_go_224_in:
     subs r6, #10
     cmp r6, #0
     ble __ul_m68krun_done
@@ -12501,15 +12930,15 @@ CMPWEaDn:
     movs r2, #7
     ands r1, r2
     cmp r1, #0
-    beq fp_cmpweadn_Dn_122
+    beq fp_cmpweadn_Dn_132
     cmp r1, #5
-    beq fp_cmpweadn_d16_123
+    beq fp_cmpweadn_d16_133
     movs r1, #63
     ands r1, r0
     cmp r1, #60
-    beq fp_cmpweadn_imm_124
+    beq fp_cmpweadn_imm_134
     b fp_cmpweadn_fallback
-  fp_cmpweadn_Dn_122:
+  fp_cmpweadn_Dn_132:
     movs r3, r0
     movs r1, #7
     ands r3, r1
@@ -12530,9 +12959,9 @@ CMPWEaDn:
     mov r8, r3
     mov r9, r3
     movs r1, #0
-    bvc fp_cmpw_v_125
+    bvc fp_cmpw_v_135
     ldr r1, =$80000000
-  fp_cmpw_v_125:
+  fp_cmpw_v_135:
     ldr r5, =global_fv
     str r1, [r5]
     movs r1, #0
@@ -12550,7 +12979,7 @@ CMPWEaDn:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_cmpweadn_d16_123:
+  fp_cmpweadn_d16_133:
     movs r5, r0
     movs r1, #7
     ands r5, r1
@@ -12570,19 +12999,19 @@ CMPWEaDn:
     ldr r1, =global_pager
     ldr r3, [r1, r3]
     cmp r3, #0
-    beq fp_src_hook_126
+    beq fp_src_hook_136
     lsls r1, r5, #8
     lsrs r1, r1, #8
     adds r3, r3, r1
     ldrh r2, [r3]
-    b fp_src_join_127
-  fp_src_hook_126:
+    b fp_src_join_137
+  fp_src_hook_136:
     lsls r0, r5, #8
     lsrs r0, r0, #8
     bl m68khookrd16
     uxth r2, r0
     ldrh r0, [r4]
-  fp_src_join_127:
+  fp_src_join_137:
     lsrs r3, r0, #9
     movs r1, #7
     ands r3, r1
@@ -12596,9 +13025,9 @@ CMPWEaDn:
     mov r8, r3
     mov r9, r3
     movs r1, #0
-    bvc fp_cmpw_v_128
+    bvc fp_cmpw_v_138
     ldr r1, =$80000000
-  fp_cmpw_v_128:
+  fp_cmpw_v_138:
     ldr r5, =global_fv
     str r1, [r5]
     movs r1, #0
@@ -12616,7 +13045,7 @@ CMPWEaDn:
     ldr r1, =global_dispatch
     ldr r1, [r1, r0]
     bx r1
-  fp_cmpweadn_imm_124:
+  fp_cmpweadn_imm_134:
     movs r1, #2
     ldrh r2, [r4, r1]
     lsrs r3, r0, #9
@@ -12632,9 +13061,9 @@ CMPWEaDn:
     mov r8, r3
     mov r9, r3
     movs r1, #0
-    bvc fp_cmpw_v_129
+    bvc fp_cmpw_v_139
     ldr r1, =$80000000
-  fp_cmpw_v_129:
+  fp_cmpw_v_139:
     ldr r5, =global_fv
     str r1, [r5]
     movs r1, #0
@@ -13040,6 +13469,69 @@ S261:
   NextOp()
 
 ANDWDnEa:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    lsrs r1, r0, #3
+    movs r2, #7
+    ands r1, r2
+    cmp r1, #5
+    beq fp_andwdnea_d16_146
+    b fp_andwdnea_fallback
+  fp_andwdnea_d16_146:
+    movs r5, r0
+    movs r1, #7
+    ands r5, r1
+    adds r5, #8
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r5, [r5]
+    movs r1, #2
+    ldrsh r1, [r4, r1]
+    adds r5, r5, r1
+    lsls r3, r5, #31
+    bne fp_andwdnea_fallback
+    lsls r3, r5, #8
+    lsrs r3, r3, #20
+    lsls r3, r3, #2
+    ldr r1, =global_pagew
+    ldr r3, [r1, r3]
+    cmp r3, #0
+    beq fp_andwdnea_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r3, r3, r1
+    ldrh r2, [r3]
+    lsrs r5, r0, #9
+    movs r1, #7
+    ands r5, r1
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldrh r1, [r5]
+    ands r2, r1
+    lsls r1, r2, #16
+    mov r8, r1
+    mov r9, r1
+    movs r1, #0
+    mov r10, r1
+    ldr r5, =global_fv
+    str r1, [r5]
+    strh r2, [r3]
+    subs r6, #16
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_andwdnea_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $30) = 0
@@ -13317,6 +13809,79 @@ S272:
   NextOp()
 
 ADDWDnEa:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    lsrs r1, r0, #3
+    movs r2, #7
+    ands r1, r2
+    cmp r1, #5
+    beq fp_addwdnea_d16_142
+    b fp_addwdnea_fallback
+  fp_addwdnea_d16_142:
+    movs r5, r0
+    movs r1, #7
+    ands r5, r1
+    adds r5, #8
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r5, [r5]
+    movs r1, #2
+    ldrsh r1, [r4, r1]
+    adds r5, r5, r1
+    lsls r3, r5, #31
+    bne fp_addwdnea_fallback
+    lsls r3, r5, #8
+    lsrs r3, r3, #20
+    lsls r3, r3, #2
+    ldr r1, =global_pagew
+    ldr r3, [r1, r3]
+    cmp r3, #0
+    beq fp_addwdnea_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r3, r3, r1
+    ldrh r2, [r3]
+    lsrs r5, r0, #9
+    movs r1, #7
+    ands r5, r1
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldrh r1, [r5]
+    lsls r1, r1, #16
+    lsls r2, r2, #16
+    adds r2, r2, r1
+    mov r8, r2
+    mov r9, r2
+    movs r1, #0
+    bvc fp_addwdnea_v_143
+    ldr r1, =$80000000
+  fp_addwdnea_v_143:
+    ldr r5, =global_fv
+    str r1, [r5]
+    movs r1, #0
+    sbcs r1, r1
+    mvns r1, r1
+    mov r10, r1
+    ldr r5, =global_fx
+    str r1, [r5]
+    lsrs r2, r2, #16
+    strh r2, [r3]
+    subs r6, #16
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_addwdnea_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $30) = 0
@@ -13446,6 +14011,86 @@ S276:
   NextOp()
 
 ADDLDnEa:
+  ASM Uses PIP, CLeft, FZ, FN, FC, PEnd
+    ldrh r0, [r4]
+    lsrs r1, r0, #3
+    movs r2, #7
+    ands r1, r2
+    cmp r1, #5
+    beq fp_addldnea_d16_144
+    b fp_addldnea_fallback
+  fp_addldnea_d16_144:
+    movs r5, r0
+    movs r1, #7
+    ands r5, r1
+    adds r5, #8
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r5, [r5]
+    movs r1, #2
+    ldrsh r1, [r4, r1]
+    adds r5, r5, r1
+    lsls r3, r5, #31
+    bne fp_addldnea_fallback
+    lsls r3, r5, #20
+    lsrs r3, r3, #21
+    ldr r1, =2047
+    cmp r3, r1
+    beq fp_addldnea_fallback
+    lsls r3, r5, #8
+    lsrs r3, r3, #20
+    lsls r3, r3, #2
+    ldr r1, =global_pagew
+    ldr r3, [r1, r3]
+    cmp r3, #0
+    beq fp_addldnea_fallback
+    lsls r1, r5, #8
+    lsrs r1, r1, #8
+    adds r3, r3, r1
+    ldr r2, [r3]
+    movs r1, #16
+    rors r2, r1
+    lsrs r5, r0, #9
+    movs r1, #7
+    ands r5, r1
+    lsls r5, r5, #2
+    ldr r1, =global_reg
+    adds r5, r5, r1
+    ldr r1, [r5]
+    adds r2, r2, r1
+    mov r8, r2
+    mov r9, r2
+    movs r1, #0
+    bvc fp_addldnea_v_145
+    ldr r1, =$80000000
+  fp_addldnea_v_145:
+    ldr r5, =global_fv
+    str r1, [r5]
+    movs r1, #0
+    sbcs r1, r1
+    mvns r1, r1
+    mov r10, r1
+    ldr r5, =global_fx
+    str r1, [r5]
+    movs r1, #16
+    rors r2, r1
+    str r2, [r3]
+    rors r2, r1
+    subs r6, #24
+    adds r4, #4
+    cmp r6, #0
+    ble __ul_m68krun_done
+    cmp r4, r11
+    bhs __ul_m68krun_resync
+    ldrh r0, [r4]
+    lsrs r0, r0, #6
+    lsls r0, r0, #2
+    ldr r1, =global_dispatch
+    ldr r1, [r1, r0]
+    bx r1
+  fp_addldnea_fallback:
+  EndASM
   op = PeekU(PIP)
   xo = 2
   If (op & $30) = 0

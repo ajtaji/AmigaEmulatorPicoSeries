@@ -174,38 +174,104 @@ Flash regions are set per board, clear of the PDP-11's packs and store:
 write the regions, upload, then talk to the board. Use `-Dump` for a chip RAM
 dump and `-Shot` for a picture.
 
-Results at 150 MHz, the whole program in SRAM and chip RAM in PSRAM (PAL is
-50 fps):
+**Speed at 150 MHz (2026-10-24).** The whole program runs from SRAM. The
+machine is paced to PAL's 50 frames a second, as a real A500 is. "Unpaced"
+(the `f` command, `pico_machine.ps1 -Unpaced`) is how fast it can go. "Slowest
+frame" is the most time one frame's emulation took (PAL gives it 20,000 µs).
+"Late" counts frames over 20 ms.
 
-| Board | Program | Result | fps |
-|---|---|---|---|
-| Feather RP2350 (COM20) | `tests/boot` through the boot ROM | same serial output and sum as the desktop | 66 idle, 50 while loading |
-| Feather RP2350 (COM20) | `tests/chiptest.rom` | same picture as the desktop | 33 |
-| Feather RP2350 (COM20) | the PureMetal demo (`demo/`), 3 bitplanes, 8 sprites, blitter, copper | chip RAM at frame 400 identical to the desktop | 36 (25 before the mixer, blitter and checksum changes) |
-| Pico Plus 2 W (COM16) | `tests/boot` | same as the Feather | 66 idle |
+| Board | Program | Paced | Unpaced | Slowest frame | Late in 30 s |
+|---|---|---|---|---|---|
+| Feather RP2350 (COM20), low 256 KB of chip RAM in SRAM | the PureMetal demo | **50.0** | 53.7 | 18.9 ms | 0 |
+| Feather RP2350 (COM20) | `tests/chiptest.rom` | **50.0** | 64.5 | 15.5 ms | 0 (1 at start-up, while it draws with the CPU) |
+| Pico Plus 2 W (COM16), all chip RAM in PSRAM, Bluetooth built in | the PureMetal demo | **50.0** | 52.6 | 19.5 ms | 0 |
 
-**Where the time goes.** With `#AM_PROFILE`, the `p` command prints the time
-per part of the line, averaged over 50 frames, from the M33's cycle counter.
-For the demo on the Feather, per frame:
+Before this work the demo ran at 25 fps (36 after the first round), and
+`chiptest` at 33.
+
+**How each step was proven.** The emulated machine is deterministic, so a
+board must produce exactly what the PC produces. `tools/pico_demo_check.sh
+[rom] [port] [board]` runs a program on the board and on the PC
+(`amiga_cli_48k`, the PC at the Picos' 48 kHz), then compares:
+
+- chip RAM after frame 1000, byte for byte;
+- Paula's last 4,096 output samples.
+
+It fails outright if either dump is missing. At the end both programs were
+identical on both boards. Every core fast path also passes its 68000 corpus
+groups on the Pico 2 W, state and cycles. With the final core, the whole
+corpus on the Pico 2 W is again 990,590 exact, 9,469 errata and 1 fail
+(DIVU #5744), identical to the PC (`docs/board_corpus_pico2w_fastpaths.txt`).
+
+**What made it fast (each change gives the same results, only quicker):**
+
+- **The 68000 core:** Thumb fast paths at the top of the busiest handlers
+  (`tools/m68k_fast.py`, RP2350 only). They cover:
+  - MOVE.B/W/L to Dn, MOVE.W/L to (d16,An), MOVEA.L;
+  - CMP.W, BTST #n,Dn;
+  - every Bcc and BRA, RTS, JSR abs.l;
+  - SWAP, EXT, CLR.W;
+  - ADD.W/ADD.L/AND.W Dn,(d16,An).
+
+  The common modes (Dn, An, (d16,An), #imm) are covered, and a word read
+  from a chip register calls the read hook directly. Anything else (another
+  mode, an odd address, a ROM or chip page, a long across a page) goes to
+  the PureMetal handler, which still holds every rule.
+  - On `tests/speed/mem.s`, where four of the loop's five instructions
+    take fast paths, the cost per 68000 instruction fell from 130 host
+    cycles to about 90.
+  - In the demo, 6,366 of about 7,900 instructions a frame took a fast path
+    (counted before the second set was added).
+- **The blitter** (`src/blit_fast.pmi`): area blits without fill run in
+  Thumb, with a constant-D store loop, an A-to-D copy and a general row
+  loop. The demo's 2,682 words a frame went from 5.1 ms to 1.6 ms.
+- **Paula** (`src/audio_fast.pmi`): the line's stepping and mixing run in
+  Thumb, while `AudioNextByte` still does every fetch and interrupt; the
+  high byte of a word is taken inline. 3.75 ms to 2.85 ms.
+- **The copper:** a WAIT on its own line is computed instead of scanning
+  colour clocks through a call each. Chip RAM reads are inline (`ChipWord`)
+  on the copper, sprite and Paula paths. 3.2 ms to 2.5 ms.
+- **`CustomRead`** tests INTREQR first, the register wait-for-VBLANK loops
+  poll.
+- **Building without the profile:** `#AM_PROFILE`, the per-part time profile
+  (`src/amiga_profile.feather2350`, `p`), costs about 1 ms a frame, so the
+  normal builds leave it out. The picture checksum is off unless asked for
+  with `c`.
+
+Putting the low 256 KB of chip RAM in SRAM (Feather) changed the demo
+little, about 2%: its limit was never PSRAM traffic.
+
+**Where the rest goes (the demo, Feather, profile build, per frame):**
 
 | Part | ms |
 |---|---|
-| 68000 core | 11.5 |
-| blitter | 5.1 |
-| Paula's mixer | 3.7 |
-| copper | 3.2 |
+| 68000 | about 8 |
+| Paula | 2.9 |
+| copper | 2.5 |
 | line start (sprite DMA, window) | 2.0 |
-| everything else | 2.2 |
-| **total** | **27.7** (PAL's budget is 20) |
+| blitter | 1.6 |
+| everything else | 2.0 |
 
-The core alone runs `tests/bench` at about 1.07 M instructions a second, about
-107 host cycles each, where an A500 needs about 1.4 times that. PureMetal
-keeps locals on the stack, and that is the limit. Going faster means changing
-the core itself, for example specialised Dn paths or skipping a program's
-polling loops exactly.
+The rest of the 68000's time goes to entering the core about 750 times a
+frame (once per copper event, about 270 host cycles each) and to the
+instructions still on PureMetal handlers.
 
-The picture checksum is off unless asked for with `c`. Drawing one frame in
-ten cost 12 ms a frame on average.
+**PureMetal facts this ran into:**
+
+- A procedure's locals always live in its stack frame. Every call zero-fills
+  them, and every statement stores its result and loads it again. A
+  four-line procedure shows it: `a = n + 1` becomes `ADDS r1, r0, #1` /
+  `STR r1, [sp, #12]` / `LDR r0, [sp, #12]`. That is why a compiled handler
+  costs about 100 host cycles and the fast paths are assembly.
+- Inline assembly is Thumb-1, plus udiv, movw, movt and smull/umull. Only
+  r0-r3, r5 and r12 are free inside the core: r4, r6 and r8-r11 hold its
+  reserved Globals, and r7 is the frame.
+- A `push`/`pop` inside the core's handler blocks broke every handler of
+  `M68kRun`, bisected on the board. The same balanced pair in a small
+  procedure compiles correctly, so the cause was not isolated. The fast paths
+  use no stack.
+- `Dim A(n)` has n elements in PureMetal (0 to n-1) and n+1 in PureBasic. A
+  constant index past the end is refused when compiling.
 
 **Sound (Pico Plus 2 W).** Paula writes mono 48 kHz (`#AUD_MONO`), and the
 compiler's Bluetooth A2DP library sends it to a speaker:

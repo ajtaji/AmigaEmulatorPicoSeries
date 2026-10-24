@@ -25,7 +25,7 @@ Global Dim AudHalf.i(4)           ; 0: the high byte is next
 Global Dim AudOut.i(4)            ; the sample playing (signed)
 Global Dim AudOn.i(4)
 Global Dim AudCpu.i(4)            ; CPU-driven (non-DMA) data waiting
-Global Dim AudRing.w(#AUD_RING * 2)
+Global Dim AudRing.w(#AUD_RING * (2 - #AUD_MONO))   ; stereo pairs, or mono samples
 Global AudWr.i, AudRd.i, AudAcc.i, AudLp.i
 
 Global DskPt.i, DskLen.i, DskLenPrev.i, DskLeft.i, DskOn.i, DskWrite.i, DskSyncWait.i, DskByte.i, DskWordEq.i

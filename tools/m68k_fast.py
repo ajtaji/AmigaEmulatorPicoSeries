@@ -244,6 +244,98 @@ def build():
     if ONLY and 'BTSTI' not in ONLY:
         del FAST['BTSTI'], USES['BTSTI']
 
+    # SWAP Dn, EXT.W Dn, EXT.L Dn (their handlers also hold PEA / MOVEM: Dn mode only)
+    def simple(h, body, cyc):
+        fbx = f'fp_{h.lower()}_fallback'
+        out = ['ldrh r0, [r4]', 'movs r1, #56', 'tst r0, r1', f'bne {fbx}',
+               'movs r3, #7', 'ands r3, r0', 'lsls r3, r3, #2', 'ldr r1, =global_reg',
+               'adds r3, r3, r1'] + body + finish(cyc, 2) + [f'{fbx}:']
+        if not ONLY or h in ONLY:
+            FAST[h] = out
+            USES[h] = uses_of(out)
+    simple('SwapPea', ['ldr r2, [r3]', 'movs r1, #16', 'rors r2, r1', 'str r2, [r3]']
+           + flags_logic(4, 'r2'), 4)
+    simple('ExtLMovemL', ['ldrh r2, [r3]', 'sxth r2, r2', 'str r2, [r3]'] + flags_logic(4, 'r2'), 4)
+    simple('ExtWMovemW', ['ldrb r2, [r3]', 'sxtb r2, r2', 'strh r2, [r3]', 'uxth r2, r2']
+           + flags_logic(2, 'r2'), 4)
+
+    # CLR.W Dn / (d16,An): Z set, N V C clear; the memory form needs a RAM page
+    # (the 68000 reads before it writes - a chip register is left to PureMetal)
+    def body_clrw(m, fb):
+        zero = ['movs r1, #0', 'mov r8, r1', 'mov r9, r1', 'mov r10, r1', 'ldr r5, =global_fv', 'str r1, [r5]']
+        if m == 'Dn':
+            return reg_addr('r3', 0, False, 'r1') + ['movs r2, #0', 'strh r2, [r3]'] + zero + finish(4, 2)
+        return (ea_d16('r5', 0, 2, 'r1') + host_of('r5', 'r3', fb, 'pagew', 2)
+                + ['movs r2, #0', 'strh r2, [r3]'] + zero + finish(16, 4))
+    block('CLRW', ['Dn', 'd16'], body_clrw, None)
+
+    # ADD.W / ADD.L / AND.W Dn,(d16,An): read, operate, write back (a RAM page)
+    for h, size, kind, cyc in (('ADDWDnEa', 2, 'add', 16), ('ADDLDnEa', 4, 'add', 24), ('ANDWDnEa', 2, 'and', 16)):
+        def body(m, fb, size=size, kind=kind, cyc=cyc):
+            out = ea_d16('r5', 0, 2, 'r1') + host_of('r5', 'r3', fb, 'pagew', size)
+            out += load(size, 'r2', 'r3')                         # vd
+            out += reg_addr('r5', 9, False, 'r1')                 # &Dn
+            if size == 2:
+                out += ['ldrh r1, [r5]']
+                if kind == 'add':
+                    out += ['lsls r1, r1, #16', 'lsls r2, r2, #16', 'adds r2, r2, r1',
+                            'mov r8, r2', 'mov r9, r2'] + capture_vc(False, True, _lab(h, 'v')) + ['lsrs r2, r2, #16']
+                else:
+                    out += ['ands r2, r1'] + flags_logic(2, 'r2')
+            else:
+                out += ['ldr r1, [r5]', 'adds r2, r2, r1', 'mov r8, r2', 'mov r9, r2'] + capture_vc(False, True, _lab(h, 'v'))
+            out += store(size, 'r2', 'r3')
+            return out + finish(cyc, 4)
+        block(h, ['d16'], body, None)
+
+    # MOVE.B <ea>,Dn (MoveB0): Dn, (d16,An) (a byte is at address ^ 1), #imm
+    def body_moveb(m, fb):
+        if m == 'Dn':
+            lines, ext, cyc = reg_addr('r3', 0, False, 'r1') + ['ldrb r2, [r3]'], 0, 0
+        elif m == 'imm':
+            lines, ext, cyc = ['movs r1, #2', 'ldrb r2, [r4, r1]'], 2, 4
+        else:
+            lines = ea_d16('r5', 0, 2, 'r1') + [
+                'lsls r3, r5, #8', 'lsrs r3, r3, #20', 'lsls r3, r3, #2',
+                'ldr r1, =global_pager', 'ldr r3, [r1, r3]', 'cmp r3, #0', f'beq {fb}',
+                'lsls r1, r5, #8', 'lsrs r1, r1, #8', 'movs r2, #1', 'eors r1, r2',
+                'adds r3, r3, r1', 'ldrb r2, [r3]']
+            ext, cyc = 2, 8
+        return (lines + reg_addr('r3', 9, False, 'r1') + ['strb r2, [r3]',
+                'lsls r1, r2, #24', 'mov r8, r1', 'mov r9, r1', 'movs r1, #0', 'mov r10, r1',
+                'ldr r5, =global_fv', 'str r1, [r5]'] + finish(4 + cyc, 2 + ext))
+    block('MoveB0', ['Dn', 'd16', 'imm'], body_moveb, None)
+
+    # RTS: pop the PC (a RAM stack, the long on one page, an even target)
+    fbr = 'fp_rts_fallback'
+    rts = ['ldrh r0, [r4]', 'ldr r1, =$4E75', 'cmp r0, r1', f'bne {fbr}',
+           'ldr r3, =global_reg', 'ldr r5, [r3, #60]'] + host_of('r5', 'r2', fbr, 'pager', 4) + [
+           'ldr r2, [r2]', 'movs r1, #16', 'rors r2, r1',          # the return address
+           'lsls r1, r2, #31', f'bne {fbr}',
+           'adds r5, #4', 'str r5, [r3, #60]',
+           'ldr r1, =global_pbase', 'ldr r1, [r1]', 'adds r4, r1, r2',   # PIP = PBase + target
+           'ldr r1, =global_pstart', 'ldr r1, [r1]', 'cmp r4, r1', 'bhs fp_rts_in',
+           'movs r1, #0', 'mov r11, r1', 'fp_rts_in:'] + count('m68kfasthit') + ['subs r6, #16'] + dispatch() + [f'{fbr}:'] + count('m68kfastmiss')
+    if not ONLY or 'Misc4E' in ONLY:
+        FAST['Misc4E'] = rts
+        USES['Misc4E'] = uses_of(rts)
+
+    # JSR abs.l: push the return address (a RAM stack), jump to an even target
+    fbj = 'fp_jsr_fallback'
+    jsr = ['ldrh r0, [r4]', 'ldr r1, =$4EB9', 'cmp r0, r1', f'bne {fbj}',
+           'movs r1, #2', 'ldr r2, [r4, r1]', 'movs r1, #16', 'rors r2, r1',   # target
+           'lsls r1, r2, #31', f'bne {fbj}',
+           'ldr r3, =global_reg', 'ldr r5, [r3, #60]', 'subs r5, #4'] + host_of('r5', 'r0', fbj, 'pagew', 4) + [
+           'str r5, [r3, #60]',
+           'ldr r1, =global_pbase', 'ldr r1, [r1]', 'subs r3, r4, r1', 'adds r3, #6',    # the return address
+           'movs r5, #16', 'rors r3, r5', 'str r3, [r0]',
+           'adds r4, r1, r2',
+           'ldr r1, =global_pstart', 'ldr r1, [r1]', 'cmp r4, r1', 'bhs fp_jsr_in',
+           'movs r1, #0', 'mov r11, r1', 'fp_jsr_in:'] + count('m68kfasthit') + ['subs r6, #20'] + dispatch() + [f'{fbj}:'] + count('m68kfastmiss')
+    if not ONLY or 'JSR' in ONLY:
+        FAST['JSR'] = jsr
+        USES['JSR'] = uses_of(jsr)
+
     # Bcc and BRA
     import gen_m68k
     for cc in [0] + list(range(2, 16)):
