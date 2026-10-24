@@ -537,6 +537,9 @@ Procedure AmigaRunLine()
   AudioLine()
   DiskLine()
   KbdLine()
+  ; the timers run whether or not the CPU looks at them: their interrupts come on time to the line
+  CiaSync(0)
+  CiaSync(1)
   CiaTodTick(1)
   LineCyc0 = lineEnd
   VPos = VPos + 1
