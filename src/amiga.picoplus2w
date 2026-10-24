@@ -1,0 +1,11 @@
+; The Amiga 500 on the Pimoroni Pico Plus 2 W (RP2350B, 8 MB PSRAM on GPIO47).
+EnableRunFromRAM
+#CLOCK_KHZ = 150000
+#M68K_ASM_TAIL = 1
+XIncludeFile "RP2350/Lib/clocks.pico2"
+XIncludeFile "RP2350/Lib/timer.pico2"
+XIncludeFile "RP2350/Lib/uart.pico2"
+XIncludeFile "RP2350/Lib/usb_serial.pico2"
+XIncludeFile "RP2350/Lib/safety.pico2"
+XIncludeFile "RP2350/Lib/psram.pico2"
+XIncludeFile "amiga_pico.pmi"

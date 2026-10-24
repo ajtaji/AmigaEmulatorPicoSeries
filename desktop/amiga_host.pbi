@@ -8,6 +8,7 @@ Macro ProcedureRAM
   Procedure
 EndMacro
 
+#AUD_RING = 16384                 ; Paula's output ring, stereo pairs
 XIncludeFile "m68k_core.pbi"
 XIncludeFile "../amiga/chipset.pmi"
 XIncludeFile "../amiga/cia.pmi"

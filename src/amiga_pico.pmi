@@ -1,0 +1,236 @@
+; The Amiga 500 on an RP2350 board with 8 MB of QSPI PSRAM (Pimoroni Pico Plus
+; 2 W, Adafruit Feather RP2350 HSTX). The board file names the PSRAM's chip
+; select (#PM_PSRAM_CS); the wrappers (amiga.picoplus2w, amiga.feather2350)
+; set the clock and include this file.
+;
+; Memory: the 68000 core and the chip emulation run from SRAM (the whole
+; program, EnableRunFromRAM in the wrapper). Chip RAM (512 KB) and slow RAM
+; (512 KB) are in the PSRAM through its cached window. The Kickstart and the
+; disk in DF0 come from the flash regions below, written with
+;   PureMetalForge.exe --storage-write <file> --offset <n> --port <COMn>
+; from the files tools/pico_media.py makes: the Kickstart in host word order,
+; 512 KB (a 256 KB ROM twice), and the .ADF as it is. The disk is copied to
+; the PSRAM at start (writes stay there until power-off).
+;
+; Headless: what the Amiga sends on its serial port, and the machine's state,
+; come out on USB serial. Commands on USB serial: 's' sends the next picture
+; (hex, one line per Amiga line), 'r' resets, 'k' + two hex digits presses
+; and releases a key (Amiga raw code), 'm' + dx dy (signed bytes, hex)
+; moves the mouse.
+EnableExplicit
+
+#KICK_OFFSET = $200000
+#DF0_OFFSET = $280000
+FlashRegion "kickstart", #KICK_OFFSET, $80000, "raw"
+FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
+
+#PS_CHIP = $000000
+#PS_SLOW = $080000
+#PS_DF0 = $100000
+#AUD_RING = 2048
+
+XIncludeFile "m68k.pico2"
+XIncludeFile "../amiga/chipset.pmi"
+XIncludeFile "../amiga/cia.pmi"
+XIncludeFile "../amiga/copper.pmi"
+XIncludeFile "../amiga/denise.pmi"
+XIncludeFile "../amiga/blitter.pmi"
+XIncludeFile "../amiga/paula.pmi"
+XIncludeFile "../amiga/input.pmi"
+XIncludeFile "../amiga/machine.pmi"
+XIncludeFile "io.pmi"
+
+Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i
+Global Dim SerBuf.a(256)
+Global SerLen.i
+
+Procedure HexDigit(v.i)
+  v = v & 15
+  If v < 10
+    UsbSerialWrite(48 + v)
+  Else
+    UsbSerialWrite(55 + v)
+  EndIf
+EndProcedure
+
+; A picture line: into the frame's checksum, and to USB while a picture is asked for.
+Procedure AmigaLineDone(y.i)
+  Protected x.i, c.i
+  For x = 0 To #AM_OUT_W - 1 Step 8
+    FrameSum = ((FrameSum << 1) | ((FrameSum >> 31) & 1)) ! LineBuf(x)
+  Next
+  If ShotNow
+    UsbSerialWrite(76)
+    For x = 0 To #AM_OUT_W - 1 Step 2
+      c = LineBuf(x)
+      HexDigit(c >> 8)
+      HexDigit(c >> 4)
+      HexDigit(c)
+    Next
+    Eol()
+  EndIf
+EndProcedure
+
+Procedure AmigaSerial(byte.i)
+  If byte = 10 Or SerLen >= 250
+    Say("S:")
+    For byte = 0 To SerLen - 1
+      UsbSerialWrite(SerBuf(byte))
+    Next
+    Eol()
+    SerLen = 0
+    ProcedureReturn
+  EndIf
+  If byte >= 32
+    SerBuf(SerLen) = byte
+    SerLen = SerLen + 1
+  EndIf
+EndProcedure
+
+Procedure.i HexIn(c.i)
+  If c >= 48 And c <= 57
+    ProcedureReturn c - 48
+  EndIf
+  If c >= 65 And c <= 70
+    ProcedureReturn c - 55
+  EndIf
+  If c >= 97 And c <= 102
+    ProcedureReturn c - 87
+  EndIf
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i RxWait()
+  Protected c.i
+  c = UsbSerialRead()
+  While c < 0
+    UsbSerialTask()
+    SafetyPet()
+    c = UsbSerialRead()
+  Wend
+  ProcedureReturn c
+EndProcedure
+
+Procedure Commands()
+  Protected c.i, v.i, dx.i, dy.i
+  c = UsbSerialRead()
+  While c >= 0
+    If c = 115
+      ShotWant = 1
+    ElseIf c = 114
+      AmigaReset()
+      Say("reset")
+      Eol()
+    ElseIf c = 107
+      v = (HexIn(RxWait()) << 4) | HexIn(RxWait())
+      AmigaKey(v, 0)
+      AmigaKey(v, 1)
+    ElseIf c = 109
+      dx = (HexIn(RxWait()) << 4) | HexIn(RxWait())
+      dy = (HexIn(RxWait()) << 4) | HexIn(RxWait())
+      AmigaMouse(((dx ! $80) - $80), ((dy ! $80) - $80), 0, 0)
+    EndIf
+    c = UsbSerialRead()
+  Wend
+EndProcedure
+
+Procedure Main()
+  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i
+  SafetyBoot()
+  ClockInitKhz(#CLOCK_KHZ)
+  TimerInit()
+  UsbSerialInit()
+  WaitHost()
+  Say("Amiga 500 on RP2350, clk_sys kHz=")
+  Num(ClockSysKhz())
+  Eol()
+  n = PsramBegin(#PM_PSRAM_CS)
+  Say("PSRAM bytes=")
+  Num(n)
+  Say(" error=")
+  Num(PsramError())
+  Eol()
+  If n < $200000
+    Say("no PSRAM: the chip RAM has nowhere to go")
+    Eol()
+    Repeat
+      UsbSerialTask()
+      SafetyPet()
+    ForEver
+  EndIf
+  ChipHost = #PSRAM_BASE + #PS_CHIP
+  ChipMask = $7FFFF
+  AmigaSlowHost = #PSRAM_BASE + #PS_SLOW
+  AmigaSlowBytes = $80000
+  For k = 0 To $FFFFC Step 4
+    PokeL(#PSRAM_BASE + k, 0)
+  Next
+  AmigaRomHost = $10000000 + #KICK_OFFSET
+  AmigaRomBytes = $80000
+  w = PeekL(AmigaRomHost)
+  If w = -1
+    Say("the kickstart region is empty: write it with --storage-write (tools/pico_media.py makes the file)")
+    Eol()
+  EndIf
+  ; the disk: flash -> PSRAM, so it can be written
+  If PeekA($10000000 + #DF0_OFFSET) = $44
+    t0 = Micros()
+    For k = 0 To #ADF_BYTES - 4 Step 4
+      PokeL(#PSRAM_BASE_UNCACHED + #PS_DF0 + k, PeekL($10000000 + #DF0_OFFSET + k))
+    Next
+    Say("DF0: a disk, copied in ")
+    Num((Micros() - t0) / 1000)
+    Say(" ms")
+    Eol()
+  EndIf
+  AmigaReset()
+  If PeekA($10000000 + #DF0_OFFSET) = $44
+    DriveInsert(0, #PSRAM_BASE + #PS_DF0, 0)
+  EndIf
+  Say("READY")
+  Eol()
+  t0 = Micros()
+  cyc0 = AmigaCpuCycles
+  Repeat
+    If ShotWant And VPos = 0
+      ShotWant = 0
+      ShotNow = 1
+      Say("SHOT")
+      Eol()
+    EndIf
+    FrameSum = 0
+    AmigaRunFrame()
+    LastFrameSum = FrameSum
+    If ShotNow
+      ShotNow = 0
+      Say("END")
+      Eol()
+    EndIf
+    frames = frames + 1
+    UsbSerialTask()
+    SafetyPet()
+    Commands()
+    t1 = Micros()
+    If t1 - t0 >= 2000000
+      us = t1 - t0
+      Say("frames/s x10=")
+      Num(Rate(frames * 10, us))
+      Say(" cpu kcycles/s=")
+      Num(Rate(AmigaCpuCycles - cyc0, us) / 1000)
+      Say(" pc=")
+      Hex(M68kGetPC(), 6)
+      Say(" frame=")
+      Num(FrameCount)
+      Say(" sum=")
+      Hex(LastFrameSum, 8)
+      Say(" df0 track=")
+      Num(DrvTrack(0))
+      Say(" motor=")
+      Num(DrvMotor(0))
+      Eol()
+      frames = 0
+      cyc0 = AmigaCpuCycles
+      t0 = Micros()
+    EndIf
+  ForEver
+EndProcedure

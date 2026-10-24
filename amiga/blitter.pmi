@@ -63,7 +63,7 @@ EndProcedure
 
 Procedure BlitArea(w.i, h.i)
   Protected x.i, y.i, a.i, b.i, c.i, d.i, ao.i, bo.i, an.i, bn.i, ash.i, bsh.i
-  Protected desc.i, stp.i, usea.i, useb.i, usec.i, used.i, lf.i, fill.i, fc.i, k.i, t.i, outw.i
+  Protected desc.i, stp.i, usea.i, useb.i, usec.i, used.i, lf.i, fill.i, fcar.i, k.i, t.i, outw.i
   ash = (BltCon0 >> 12) & 15
   bsh = (BltCon1 >> 12) & 15
   usea = BltCon0 & $800
@@ -81,7 +81,7 @@ Procedure BlitArea(w.i, h.i)
   ao = 0
   bo = 0
   For y = 0 To h - 1
-    fc = Bool(BltCon1 & 4)
+    fcar = Bool(BltCon1 & 4)
     For x = 0 To w - 1
       If usea
         BltAdat = ChipRd(BltApt)
@@ -122,11 +122,11 @@ Procedure BlitArea(w.i, h.i)
         For k = 0 To 15
           t = (d >> k) & 1
           If BltCon1 & $10
-            fc = fc ! t
-            outw = outw | (fc << k)
+            fcar = fcar ! t
+            outw = outw | (fcar << k)
           Else
-            outw = outw | ((fc | t) << k)
-            fc = fc ! t
+            outw = outw | ((fcar | t) << k)
+            fcar = fcar ! t
           EndIf
         Next
         d = outw

@@ -11,7 +11,7 @@
 ; starts after the sync word. Every turn, the index pulse goes to CIA-B FLAG.
 
 #AUD_RATE = 44100
-#AUD_RING = 16384                 ; stereo pairs, a power of two
+; #AUD_RING (stereo pairs, a power of two) is set by the platform before this file
 #TRACK_WORDS = 6400               ; the MFM words of one track (a turn: 6250 lines * 2... see DiskLine)
 #ADF_BYTES = 901120
 
