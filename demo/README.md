@@ -51,9 +51,10 @@ bitplanes, sprites, blitter and audio turned on.
 On this emulator's desktop program, or headless:
 
 ```
-desktop/amiga_cli.exe --rom bootrom/bootrom.rom --adf demo/PureMetalDemo.adf --frames 500 --shot demo.png
+desktop/amiga_cli.exe --boot demo/PureMetalDemo.adf --frames 500 --shot demo.png
 desktop/amiga_cli.exe --rom demo/PureMetalDemo.rom --frames 500 --shot demo.png
 ```
 
 The first boots the floppy the way an Amiga does (this emulator's own boot ROM reads the bootblock and
-gives it the trackdisk request it uses); the second needs no disk at all.
+gives it the trackdisk request it uses); the second needs no disk at all. The window program uses the boot ROM by itself when
+no Kickstart is chosen.
