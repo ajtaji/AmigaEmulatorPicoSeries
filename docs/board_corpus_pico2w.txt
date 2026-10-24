@@ -1,0 +1,164 @@
+68000 vectors clk_sys kHz=150001 asm-tail=1
+READY
+G ABCD pass=8065 fail=0 cycles=0 errata=0
+G ADD.b pass=8065 fail=0 cycles=0 errata=0
+G ADD.l pass=7685 fail=0 cycles=0 errata=380
+G ADD.w pass=8065 fail=0 cycles=0 errata=0
+G ADDA.l pass=8065 fail=0 cycles=0 errata=0
+G ADDA.w pass=8065 fail=0 cycles=0 errata=0
+G ADDX.b pass=8065 fail=0 cycles=0 errata=0
+G ADDX.l pass=8065 fail=0 cycles=0 errata=0
+G ADDX.w pass=8065 fail=0 cycles=0 errata=0
+G AND.b pass=8065 fail=0 cycles=0 errata=0
+G AND.l pass=8065 fail=0 cycles=0 errata=0
+G AND.w pass=8065 fail=0 cycles=0 errata=0
+G ANDItoCCR pass=8065 fail=0 cycles=0 errata=0
+G ANDItoSR pass=8065 fail=0 cycles=0 errata=0
+G ASL.b pass=8063 fail=0 cycles=0 errata=2
+G ASL.l pass=8065 fail=0 cycles=0 errata=0
+G ASL.w pass=8065 fail=0 cycles=0 errata=0
+G ASR.b pass=6423 fail=0 cycles=0 errata=1642
+G ASR.l pass=7034 fail=0 cycles=0 errata=1031
+G ASR.w pass=7002 fail=0 cycles=0 errata=1063
+G Bcc pass=8065 fail=0 cycles=0 errata=0
+G BCHG pass=8065 fail=0 cycles=0 errata=0
+G BCLR pass=8065 fail=0 cycles=0 errata=0
+G BSET pass=8065 fail=0 cycles=0 errata=0
+G BSR pass=8065 fail=0 cycles=0 errata=0
+G BTST pass=8065 fail=0 cycles=0 errata=0
+F 1 op=49B8 what=17 got=00002710 want=00002718
+F 1 op=49B8 what=19 got=0007FB10 want=0007FB18
+F 2 op=49B7 what=17 got=00002710 want=00002718
+F 2 op=49B7 what=19 got=0007FB10 want=0007FB18
+G CHK pass=5613 fail=2452 cycles=0 errata=0
+G CLR.b pass=8065 fail=0 cycles=0 errata=0
+G CLR.l pass=8065 fail=0 cycles=0 errata=0
+G CLR.w pass=8065 fail=0 cycles=0 errata=0
+G CMP.b pass=8065 fail=0 cycles=0 errata=0
+vectors groups=31 pass=243445 fail=2452 cycles=0 errata=4118 FAIL
+host: 31 files, 31450356 bytes in 131.7 s (239 KB/s)
+68000 vectors clk_sys kHz=150001 asm-tail=1
+READY
+G CMP.l pass=8065 fail=0 cycles=0 errata=0
+G CMP.w pass=8065 fail=0 cycles=0 errata=0
+G CMPA.l pass=8065 fail=0 cycles=0 errata=0
+G CMPA.w pass=8065 fail=0 cycles=0 errata=0
+G DBcc pass=8065 fail=0 cycles=0 errata=0
+F 6 op=89E9 what=4 got=F97D3889 want=CF35DE93
+F 6 op=89E9 what=17 got=0000271A want=00002718
+F 12 op=8FE7 what=7 got=C80E4706 want=BD5A8554
+F 12 op=8FE7 what=17 got=0000271A want=00002718
+G DIVS pass=4292 fail=627 cycles=0 errata=3146
+F 2 op=84DF what=2 got=FFFF7A4E want=6F1EC056
+F 2 op=84DF what=17 got=00002710 want=00002718
+F 26 op=8EEA what=7 got=FFFFAC54 want=7BA5D7DD
+F 52 op=84F0 what=2 got=FFFFBD79 want=A76BEB8B
+G DIVU pass=5566 fail=645 cycles=0 errata=1854
+G EOR.b pass=8065 fail=0 cycles=0 errata=0
+G EOR.l pass=8065 fail=0 cycles=0 errata=0
+G EOR.w pass=8065 fail=0 cycles=0 errata=0
+G EORItoCCR pass=8065 fail=0 cycles=0 errata=0
+G EORItoSR pass=8065 fail=0 cycles=0 errata=0
+G EXG pass=8065 fail=0 cycles=0 errata=0
+F 0 op=48C4 what=4 got=00008A0A want=FFFF8A0A
+F 0 op=48C4 what=17 got=00002700 want=00002708
+F 1 op=48C4 what=4 got=0000EDBA want=FFFFEDBA
+F 1 op=48C4 what=17 got=00002710 want=00002718
+G EXT.l pass=4119 fail=3946 cycles=0 errata=0
+F 2 op=4885 what=5 got=018400A1 want=0184FFA1
+F 2 op=4885 what=17 got=00002700 want=00002708
+F 6 op=4884 what=4 got=D84A00AE want=D84AFFAE
+F 6 op=4884 what=17 got=00002710 want=00002718
+G EXT.w pass=4053 fail=4012 cycles=0 errata=0
+G JMP pass=8065 fail=0 cycles=0 errata=0
+G JSR pass=8065 fail=0 cycles=0 errata=0
+G LEA pass=8065 fail=0 cycles=0 errata=0
+G LINK pass=8065 fail=0 cycles=0 errata=0
+G LSL.b pass=8065 fail=0 cycles=0 errata=0
+G LSL.l pass=8065 fail=0 cycles=0 errata=0
+G LSL.w pass=8065 fail=0 cycles=0 errata=0
+G LSR.b pass=8065 fail=0 cycles=0 errata=0
+G LSR.l pass=8065 fail=0 cycles=0 errata=0
+G LSR.w pass=8065 fail=0 cycles=0 errata=0
+G MOVE.b pass=8065 fail=0 cycles=0 errata=0
+G MOVE.l pass=8065 fail=0 cycles=0 errata=0
+G MOVE.q pass=8065 fail=0 cycles=0 errata=0
+G MOVE.w pass=8065 fail=0 cycles=0 errata=0
+G MOVEA.l pass=8065 fail=0 cycles=0 errata=0
+G MOVEA.w pass=8065 fail=0 cycles=0 errata=0
+G MOVEfromSR pass=8065 fail=0 cycles=0 errata=0
+vectors groups=32 pass=243850 fail=9230 cycles=0 errata=5000 FAIL
+host: 32 files, 32921046 bytes in 134.9 s (244 KB/s)
+68000 vectors clk_sys kHz=150000 asm-tail=1
+READY
+G MOVEfromUSP pass=8065 fail=0 cycles=0 errata=0
+G MOVEM.l pass=8065 fail=0 cycles=0 errata=0
+G MOVEM.w pass=8065 fail=0 cycles=0 errata=0
+G MOVEP.l pass=8065 fail=0 cycles=0 errata=0
+G MOVEP.w pass=8065 fail=0 cycles=0 errata=0
+G MOVEtoCCR pass=8065 fail=0 cycles=0 errata=0
+G MOVEtoSR pass=8065 fail=0 cycles=0 errata=0
+G MOVEtoUSP pass=8065 fail=0 cycles=0 errata=0
+F 1 op=C3C4 what=1 got=1EB8077C want=FD77077C
+F 1 op=C3C4 what=17 got=00002710 want=00002718
+F 3 op=CBC6 what=5 got=F9B1470E want=0230470E
+F 3 op=CBC6 what=17 got=00002708 want=00002700
+G MULS pass=5642 fail=2423 cycles=0 errata=0
+G MULU pass=8065 fail=0 cycles=0 errata=0
+G NBCD pass=8065 fail=0 cycles=0 errata=0
+G NEG.b pass=8065 fail=0 cycles=0 errata=0
+G NEG.l pass=8065 fail=0 cycles=0 errata=0
+G NEG.w pass=8065 fail=0 cycles=0 errata=0
+G NEGX.b pass=8065 fail=0 cycles=0 errata=0
+G NEGX.l pass=8065 fail=0 cycles=0 errata=0
+G NEGX.w pass=8065 fail=0 cycles=0 errata=0
+G NOP pass=8065 fail=0 cycles=0 errata=0
+G NOT.b pass=8065 fail=0 cycles=0 errata=0
+G NOT.l pass=8065 fail=0 cycles=0 errata=0
+G NOT.w pass=8065 fail=0 cycles=0 errata=0
+G OR.b pass=8065 fail=0 cycles=0 errata=0
+G OR.l pass=8065 fail=0 cycles=0 errata=0
+G OR.w pass=8065 fail=0 cycles=0 errata=0
+G ORItoCCR pass=8065 fail=0 cycles=0 errata=0
+G ORItoSR pass=8065 fail=0 cycles=0 errata=0
+G PEA pass=8065 fail=0 cycles=0 errata=0
+G RESET pass=8065 fail=0 cycles=0 errata=0
+G ROL.b pass=8065 fail=0 cycles=0 errata=0
+vectors groups=29 pass=231462 fail=2423 cycles=0 errata=0 FAIL
+host: 29 files, 31034544 bytes in 128.9 s (241 KB/s)
+68000 vectors clk_sys kHz=150001 asm-tail=1
+READY
+G ROL.l pass=8065 fail=0 cycles=0 errata=0
+G ROL.w pass=8065 fail=0 cycles=0 errata=0
+G ROR.b pass=8065 fail=0 cycles=0 errata=0
+G ROR.l pass=8065 fail=0 cycles=0 errata=0
+G ROR.w pass=8065 fail=0 cycles=0 errata=0
+G ROXL.b pass=8065 fail=0 cycles=0 errata=0
+G ROXL.l pass=8065 fail=0 cycles=0 errata=0
+G ROXL.w pass=8065 fail=0 cycles=0 errata=0
+G ROXR.b pass=8065 fail=0 cycles=0 errata=0
+G ROXR.l pass=8065 fail=0 cycles=0 errata=0
+G ROXR.w pass=8065 fail=0 cycles=0 errata=0
+G RTE pass=8065 fail=0 cycles=0 errata=0
+G RTR pass=8065 fail=0 cycles=0 errata=0
+G RTS pass=8065 fail=0 cycles=0 errata=0
+G SBCD pass=8065 fail=0 cycles=0 errata=0
+G Scc pass=8065 fail=0 cycles=0 errata=0
+G SUB.b pass=8065 fail=0 cycles=0 errata=0
+G SUB.l pass=7714 fail=0 cycles=0 errata=351
+G SUB.w pass=8065 fail=0 cycles=0 errata=0
+G SUBA.l pass=8065 fail=0 cycles=0 errata=0
+G SUBA.w pass=8065 fail=0 cycles=0 errata=0
+G SUBX.b pass=8065 fail=0 cycles=0 errata=0
+G SUBX.l pass=8065 fail=0 cycles=0 errata=0
+G SUBX.w pass=8065 fail=0 cycles=0 errata=0
+G SWAP pass=8065 fail=0 cycles=0 errata=0
+G TAS pass=8065 fail=0 cycles=0 errata=0
+G TRAP pass=8065 fail=0 cycles=0 errata=0
+G TRAPV pass=8065 fail=0 cycles=0 errata=0
+G TST.b pass=8065 fail=0 cycles=0 errata=0
+G TST.l pass=8065 fail=0 cycles=0 errata=0
+G TST.w pass=8065 fail=0 cycles=0 errata=0
+G UNLINK pass=8065 fail=0 cycles=0 errata=0
+vectors groups=32 pass=257729 fail=0 cycles=0 errata=351 PASS
+host: 32 files, 32330743 bytes in 133.5 s (242 KB/s)

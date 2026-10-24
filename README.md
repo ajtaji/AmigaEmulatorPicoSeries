@@ -64,7 +64,7 @@ the mapped pages, no access outside them, and the cycle count.
 | Pico W, COM7 (RP2040, 200 MHz): ABCD, ADD.b, MOVE.q, NOP only | 32,260 | | 0 |
 
 The Pico 2 W ran in four legs, each under its own lease
-(`tools/board_corpus.sh`, log `docs/board_corpus_pico2w.log`). Six groups
+(`tools/board_corpus.sh`, log `docs/board_corpus_pico2w.txt`). Six groups
 failed on that run: CHK, DIVS, DIVU, EXT.l, EXT.w and MULS. The cause was
 where PureMetal and PureBasic read the same text differently:
 
