@@ -63,7 +63,24 @@ function Get-AmigaLease([string]$Port, [string]$Owner, [int]$Minutes) {
 }
 
 $root = Split-Path $PSScriptRoot -Parent
-$lease = Get-AmigaLease $Port 'amiga-68000' $Minutes
+
+# Is the port free to open? (Someone may hold it open outside the lease.)
+function Test-PortFree([string]$Port) {
+    try {
+        $sp = New-Object System.IO.Ports.SerialPort $Port, 115200
+        $sp.Open(); $sp.Close()
+        return $true
+    } catch { return $false }
+}
+
+for ($try = 1; ; $try++) {
+    $lease = Get-AmigaLease $Port 'amiga-68000' $Minutes
+    if (Test-PortFree $Port) { break }
+    Release-BoardLease $lease
+    "$(Get-Date -Format T): $Port is open in another program although no lease is held; lease given back, trying again in 60 s"
+    if ($try -ge 30) { throw "$Port stayed busy outside the lease for 30 minutes" }
+    Start-Sleep -Seconds 60
+}
 "lease taken $(Get-Date -Format T): $($lease.Tag)"
 try {
     foreach ($job in $Jobs) {

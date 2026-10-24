@@ -221,6 +221,10 @@ Procedure BlitLine(h.i)
     EndIf
     BltCdat = ChipRd(BltCpt)
     c = BltCdat
+    ; D goes where C was read (the first pixel: BLTDPT as the program set it)
+    If i > 0
+      BltDpt = BltCpt
+    EndIf
     d = BlitMinterm(lf, a, b, c)
     draw = Bool(sing = 0 Or BlnOneDot = 0)
     BlnOneDot = BlnOneDot + 1
@@ -230,8 +234,7 @@ Procedure BlitLine(h.i)
     If draw
       ChipWr(BltDpt, d)
     EndIf
-    BltDpt = BltCpt
-    ; stp
+    ; step to the next pixel
     If BltCon0 & $800
       If sign
         aptr = aptr + Sx16(BltBmod)

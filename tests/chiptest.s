@@ -63,6 +63,36 @@ Start:  lea     CUSTOM,a6
 .wb2:   btst    #6,$02(a6)
         bne.s   .wb2
 
+; blitter lines and fill: a triangle (250,40) (300,150) (210,120), its edges
+; drawn one dot per line with XOR, then filled (descending, inclusive)
+        move.w  #250,d0
+        move.w  #40,d1
+        move.w  #300,d2
+        move.w  #150,d3
+        bsr     Line
+        move.w  #300,d0
+        move.w  #150,d1
+        move.w  #210,d2
+        move.w  #120,d3
+        bsr     Line
+        move.w  #210,d0
+        move.w  #120,d1
+        move.w  #250,d2
+        move.w  #40,d3
+        bsr     Line
+        move.w  #$09F0,$40(a6)  ; A -> D
+        move.w  #$000A,$42(a6)  ; inclusive fill, descending
+        move.l  #SCREEN+150*40+38,d0 ; the last word of the area (x 208..319, y 40..150)
+        move.l  d0,$50(a6)      ; BLTAPT
+        move.l  d0,$54(a6)      ; BLTDPT
+        move.w  #$FFFF,$44(a6)
+        move.w  #$FFFF,$46(a6)
+        move.w  #40-14,$64(a6)  ; BLTAMOD
+        move.w  #40-14,$66(a6)  ; BLTDMOD
+        move.w  #(111<<6)|7,$58(a6)
+.wb3:   btst    #6,$02(a6)
+        bne.s   .wb3
+
 ; the sprite: 16 lines of a diamond at (160, 100)
         lea     SPRDATA,a0
         move.w  #$6450,(a0)+    ; SPR0POS: VSTART $64, HSTART $50*2
@@ -144,6 +174,81 @@ Start:  lea     CUSTOM,a6
         bchg    #1,CIAA         ; the power LED
         move.w  #$012E,$30(a6)  ; SERDAT '.'
         bra.s   .frame
+
+; Line: (d0,d1)-(d2,d3) on SCREEN (40 bytes a line), one dot per line, XOR
+Line:   movem.l d0-d7/a0,-(sp)
+        cmp.w   d1,d3           ; draw downwards (y1 <= y2)
+        bge.s   .down
+        exg     d0,d2
+        exg     d1,d3
+.down:  moveq   #0,d7           ; octant bits
+        move.w  d2,d4
+        sub.w   d0,d4           ; dx
+        bge.s   .dxp
+        neg.w   d4
+        moveq   #1,d7           ; x goes left
+.dxp:   move.w  d3,d5
+        sub.w   d1,d5           ; dy (>= 0)
+        cmp.w   d5,d4
+        bge.s   .xmaj
+        ; y major: SUD = 0, AUL = dy < 0 (never), SUL = dx < 0
+        move.w  d4,d6           ; dmin
+        move.w  d5,d4           ; dmax
+        move.w  d6,d5
+        moveq   #0,d6
+        tst.w   d7
+        beq.s   .oct
+        moveq   #$08,d6         ; SUL
+        bra.s   .oct
+.xmaj:  ; x major: SUD = 1, AUL = dx < 0, SUL = dy < 0 (never)
+        moveq   #$10,d6
+        tst.w   d7
+        beq.s   .oct
+        moveq   #$14,d6         ; SUD | AUL
+.oct:   ; d4 = dmax, d5 = dmin
+        lea     SCREEN,a0
+        mulu    #40,d1
+        add.l   d1,a0
+        move.w  d0,d1
+        lsr.w   #3,d1
+        and.w   #$FFFE,d1
+        add.w   d1,a0
+        and.w   #15,d0
+        ror.w   #4,d0
+        or.w    #$0B4A,d0       ; A C D, minterm XOR
+.wbl:   btst    #6,$02(a6)
+        bne.s   .wbl
+        move.w  d0,$40(a6)
+        add.w   d5,d5
+        add.w   d5,d5           ; 4 dmin
+        move.w  d5,$62(a6)      ; BLTBMOD
+        move.w  d5,d1
+        sub.w   d4,d1
+        sub.w   d4,d1           ; 4 dmin - 2 dmax
+        bge.s   .pos
+        or.w    #$40,d6         ; SIGN
+.pos:   or.w    #$03,d6         ; LINE | SING
+        move.w  d6,$42(a6)
+        move.w  d1,$52(a6)      ; BLTAPTL
+        sub.w   d4,d1
+        sub.w   d4,d1           ; 4 dmin - 4 dmax
+        move.w  d1,$64(a6)      ; BLTAMOD
+        move.l  a0,$48(a6)      ; BLTCPT
+        move.l  a0,$54(a6)      ; BLTDPT
+        move.w  #40,$60(a6)
+        move.w  #40,$66(a6)
+        move.w  #$8000,$74(a6)  ; BLTADAT
+        move.w  #$FFFF,$72(a6)  ; BLTBDAT
+        move.w  #$FFFF,$44(a6)
+        move.w  #$FFFF,$46(a6)
+        addq.w  #1,d4
+        lsl.w   #6,d4
+        addq.w  #2,d4
+        move.w  d4,$58(a6)      ; BLTSIZE: (dmax + 1) lines, 2 words
+.wbl2:  btst    #6,$02(a6)
+        bne.s   .wbl2
+        movem.l (sp)+,d0-d7/a0
+        rts
 
 ; Say: send the 0-terminated text at (a0) on the serial port
 Say:    move.b  (a0)+,d0
