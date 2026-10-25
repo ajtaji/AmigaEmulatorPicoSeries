@@ -13,7 +13,7 @@
 EnableExplicit
 
 CompilerIf Not Defined(GL_ENGINE_DIR$, #PB_Constant)
-  #GL_ENGINE_DIR$ = "C:/Users/ajtaj/Desktop/Neon-Arcade-Dispay-Engine/"
+  CompilerError "Pass the Neon Arcade Display Engine's folder: /CONSTANT GL_ENGINE_DIR$=<folder>/ (desktop/build.sh does)"
 CompilerEndIf
 XIncludeFile #GL_ENGINE_DIR$ + "GlTypes.pbi"
 XIncludeFile #GL_ENGINE_DIR$ + "GlUtilities.pbi"
@@ -174,14 +174,19 @@ EndProcedure
 
 ; The 68000 test corpus through the console checker (the same runner the board uses).
 Procedure ViewRunTests()
-  Protected p.i, out.s, line.s, exe.s
+  Protected p.i, out.s, line.s, exe.s, dir.s
   exe = GetPathPart(ProgramFilename()) + "m68k_check.exe"
   If FileSize(exe) <= 0
     ViewTestText = "m68k_check.exe is not beside this program (desktop/run_check.sh builds it)"
     ViewTestBad = 1
     ProcedureReturn
   EndIf
-  p = RunProgram(exe, Chr(34) + "C:\PMFBuild\downloads\680x0-v1\compact" + Chr(34), "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+  ; the streams tools/vectors.py writes: SST_680X0_DIR, or tests/680x0/compact in the repository
+  dir = GetEnvironmentVariable("SST_680X0_DIR")
+  If dir = ""
+    dir = GetPathPart(ProgramFilename()) + "..\tests\680x0\compact"
+  EndIf
+  p = RunProgram(exe, Chr(34) + dir + Chr(34), "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
   If p = 0
     ViewTestText = "the checker could not be started"
     ViewTestBad = 1

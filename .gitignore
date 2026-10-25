@@ -26,3 +26,12 @@ __pycache__/
 !bootrom/bootrom.rom
 desktop/m68k_core_hist.pbi
 m68k_hist.bin
+# this machine's own paths (tools/env.ps1, tools/env.sh), the 68000 test streams,
+# pictures of copyrighted or non-public-domain software, and the publishing notes
+tools/local.ps1
+tools/local.sh
+tests/680x0/
+docs/*aros*.png
+bootrom/bootrom.lst
+tests/boot/boot.png
+PUBLISH-META.txt

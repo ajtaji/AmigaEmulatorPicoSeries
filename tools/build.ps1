@@ -2,13 +2,15 @@
 # The image must end below flash offset $40000: above it the bench Pico W keeps
 # the Ms. Pac-Man ROM pack ($40000) and the NES ROM store ($50000). Checked before any upload.
 param(
-    [string]$Compiler = 'C:\Users\ajtaj\Desktop\Github\PureBasicCode\OpenGl Work\ArduinoBasic\PureMetalForge.exe',
+    [string]$Compiler = '',          # default: PUREMETAL_FORGE (tools\env.ps1)
     [string]$Source = 'Diagnostics/vectors.picow',
     [string]$Output = 'Diagnostics/build/vectors.uf2',
     [string]$Port = '',
     [int]$Seconds = 0
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'env.ps1')
+if (-not $Compiler) { $Compiler = $PmfExe }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $sourcePath = [IO.Path]::GetFullPath((Join-Path $projectRoot $Source))
 $outputPath = [IO.Path]::GetFullPath((Join-Path $projectRoot $Output))

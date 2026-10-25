@@ -6,11 +6,12 @@ every test; this only moves bytes and collects the verdict lines.
 
 Exit code 0 only when the board's last line is '... PASS'.
 """
-import argparse, sys, threading, time
+import argparse, os, sys, threading, time
 from pathlib import Path
 import serial
 
-STREAMS = Path(r'C:\PMFBuild\downloads\680x0-v1\compact')
+# the streams tools/vectors.py writes: SST_680X0_DIR, or tests/680x0/compact here
+STREAMS = Path(os.environ.get('SST_680X0_DIR') or Path(__file__).resolve().parent.parent / 'tests' / '680x0' / 'compact')
 
 def main():
     ap = argparse.ArgumentParser()

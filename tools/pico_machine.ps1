@@ -33,8 +33,8 @@ $ErrorActionPreference = 'Stop'
 # the flash regions of each board's wrapper (srcmiga.<board>)
 if ($Board -eq 'feather2350') { $KickOffset = '$040000'; $Df0Offset = '$0C0000'; $ExtOffset = '$1A0000' } else { $KickOffset = '$800000'; $Df0Offset = '$880000'; $ExtOffset = '$980000' }
 $root = Split-Path $PSScriptRoot -Parent
-$pmf = 'C:\Users\ajtaj\Desktop\Github\PureBasicCode\OpenGl Work\ArduinoBasic\PureMetalForge.exe'
 . (Join-Path $PSScriptRoot 'lease_turn.ps1')
+$pmf = $PmfExe
 
 function Forge([string]$arguments, [string]$log) {
     $p = Start-Process -FilePath $pmf -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru `

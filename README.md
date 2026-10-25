@@ -1,387 +1,401 @@
-# Amiga 500 for the Raspberry Pi Pico series and the desktop — PureMetal and PureBasic
+# Amiga 500 for the Raspberry Pi Pico series and the desktop
 
-A Commodore Amiga 500 (OCS chipset) emulator, written twice from one source
-tree. It is the US machine by default - NTSC, 60 frames a second, 262/263
-lines, a 3,579,545 Hz colour clock - with PAL (50 Hz, 312/313 lines) one switch
-away:
+A Commodore Amiga 500 emulator (68000, OCS chipset) that runs on the RP2350
+boards with PSRAM and on a Windows PC, built from one source tree. The 68000
+core is new, generated for each target, and checked against the published
+SingleStepTests 680x0 suite. The chipset is complete: Agnus with its copper
+and blitter, Denise, Paula with audio and disk DMA, the two CIAs, the floppy
+drives, the keyboard, mouse and joystick. On the Pico it is written in
+PureMetal and compiled to bare-metal Thumb-2 by PureMetal Forge, with no SDK
+and no RTOS. On the PC it is PureBasic, drawn with the Neon Arcade Display
+Engine.
 
-- **on the Pico** in PureMetal, for the RP2350 boards with 8 MB of QSPI PSRAM
-  (Pimoroni Pico Plus 2 W, Adafruit Feather RP2350 HSTX);
-- **on the PC** in PureBasic (C back end, x64), drawn with the Neon Arcade
-  Display Engine, with Paula through the sound card.
+The emulated machine is the **US (NTSC) A500 by default**: 60 frames a second,
+262/263 lines, a 3,579,545 Hz colour clock. The European **PAL** machine (50 Hz,
+312/313 lines, 3,546,895 Hz) is one switch away.
 
-The 68000 core and the whole chipset are the same source on both: the core is
-generated for each target by `tools/gen_m68k.py`, and the chips (`amiga/*.pmi`)
-are written in the subset of the language that both compilers accept.
+**No Kickstart ROM, AROS image or commercial disk is included.** The
+repository holds only its own code, the emulator's own boot ROM and a demo
+written in PureMetal. See [ROMs and disks](#roms-and-disks) for where to get
+system software legally.
 
-## Memory: why the PSRAM boards
+![The PureMetal demo in the desktop program](docs/window_demo.png)
 
-An A500 needs 512 KB of chip RAM (plus 512 KB of "slow" RAM on most real
-machines) and a 256 KB Kickstart ROM.
+## Features
 
-| Board | SRAM | Fits? |
-|---|---|---|
-| Pico W (RP2040) | 264 KB | no: the 68000 core alone is 123 KB of SRAM code |
-| Pico 2 W (RP2350) | 520 KB | no: 157 KB of code + 512 KB chip RAM |
-| Pico Plus 2 W / Feather RP2350 | 520 KB + 8 MB PSRAM | yes |
+- **68000** with exact instruction timings, address errors and every
+  exception frame. On the PC it matches 990,590 of the 1,000,060 SingleStepTests
+  680x0 tests in state and cycles; the board result is the same (see
+  [Testing](#testing)).
+- **Copper** (MOVE, WAIT, SKIP, danger bit) and **blitter** (area mode with
+  shifts, masks, descending mode and fill; line mode; BBUSY and the BLIT
+  interrupt), timed against the beam.
+- **Denise**: bitplanes drawn by catch-up, so mid-line register changes land
+  where they happen. HAM, EHB and dual playfield are supported, as are
+  sprites with attach and priority.
+- **Paula**: four audio channels (DMA and CPU) and disk DMA with WORDSYNC.
+  The `.ADF` tracks are built as real MFM and written back.
+- **CIAs**: timers, TOD, the serial port, the keyboard handshake and the drive
+  lines.
+- **NTSC or PAL**, chosen at start-up or switched at any time.
+- **Both cores of the RP2350 at work**: core 0 runs the machine and core 1 mixes
+  Paula's output. With a speaker, core 1 also streams it over Bluetooth A2DP.
+- A **built-in boot ROM** that starts a bootable floppy with no Kickstart,
+  enough for disks that take the machine over (demos, many games).
+- **Deterministic**: a board and the PC produce the same chip RAM and the same
+  audio, byte for byte. Every speed-up was proven that way.
 
-So the machine is built for the PSRAM boards: the program runs from SRAM
-(`EnableRunFromRAM`, 157 KB), chip RAM and slow RAM are in the PSRAM through
-its cached window, the Kickstart is read from a flash region, and the disk in
-DF0 is copied from a flash region into the PSRAM (writable until power-off).
-The 68000 core is also built for the Pico W, where its test suite runs (the
-core and a 48 KB test pool fit; a machine does not).
+## Supported boards
 
-## The 68000 core (`tools/gen_m68k.py`, `tools/m68k_ops.py`)
+An A500 needs 512 KB of chip RAM, 512 KB of slow RAM and a 256 KB ROM. Only
+the RP2350 boards with PSRAM have that much memory:
 
-- Two-level decode: a 1024-entry label table on `opcode >> 6` (each handler
-  ends in its own computed jump), and small label tables for the effective
-  address field that compute the operand and come back through a label
-  variable.
-- The PC is a host pointer into a fetch window (one 4 KB page, cut so a
-  ten-byte instruction always fits); extension words are read at `PIP + xo`.
-- 4096 pages of 4 KB over the 24-bit bus; guest words are kept in host byte
-  order (a word is one load, a byte is address XOR 1). Hook pages call the
-  machine (custom chips, CIAs).
-- Flags apart (N, Z, V, C, X), the budget in CPU cycles with the 68000's
-  timings (EA times, MULU/MULS by bit pattern, DIVU/DIVS by the microcode
-  algorithm, address-error and exception times).
-- Address errors with the 68000's 14-byte frame, the PC it pushes and the
-  register and flag state it leaves (per instruction family and mode).
-- Registers on the Picos: PIP r4, cycles left r6, Z r8, N r9, C r10, window end r11.
-
-### Verification
-
-The published single-instruction tests, SingleStepTests 680x0 (68000/v1,
-1,000,060 tests, pinned at `e0d5ece9670205cc84a0101081837deb446f86a3`),
-re-encoded by `tools/vectors.py` into a compact stream and judged by
-`Diagnostics/vectors_run.pmi` — the same runner on the board and on the PC:
-every register, SR, PC, USP/SSP, every named byte, no write anywhere else in
-the mapped pages, no access outside them, and the cycle count.
-
-| Where | Pass (state and cycles) | Corpus errata | Fail |
+| Board | Chip | Memory | Status |
 |---|---|---|---|
-| desktop (`desktop/m68k_check.exe`) | 990,590 | 9,469 | 1 |
-| Pico 2 W, COM6 (RP2350, 150 MHz), all 124 groups | 990,590 | 9,469 | 1 |
-| Pico W, COM7 (RP2040, 200 MHz): ABCD, ADD.b, MOVE.q, NOP only | 32,260 | | 0 |
+| Adafruit Feather RP2350 HSTX | RP2350A, 150 MHz | 520 KB SRAM + 8 MB PSRAM | runs at full speed, tested |
+| Pimoroni Pico Plus 2 W | RP2350B, 150 MHz | 520 KB SRAM + 8 MB PSRAM, Bluetooth | runs at full speed, tested; Bluetooth sound built in |
+| Raspberry Pi Pico 2 W | RP2350 | 520 KB SRAM | the 68000 core and its tests only; a whole machine does not fit |
+| Raspberry Pi Pico W | RP2040 | 264 KB SRAM | the 68000 core and its tests only |
 
-The Pico 2 W ran in four legs, each under its own lease
-(`tools/board_corpus.sh`, log `docs/board_corpus_pico2w.txt`). Six groups
-failed on that run: CHK, DIVS, DIVU, EXT.l, EXT.w and MULS. The cause was
-where PureMetal and PureBasic read the same text differently:
+The Pico builds are headless: the Amiga's serial port and the machine's status
+come out on USB serial, and a picture can be read back on request. The program
+runs from SRAM. Chip and slow RAM live in PSRAM; on the Feather the low
+256 KB of chip RAM is in SRAM. The Kickstart and the disk in DF0 are read from
+flash.
 
-- PureMetal ranks `<< >>` below `+ -`, and `& | !` with `* /`.
-- `>>` zero-fills an unsigned operand such as `PeekU()`.
-- `.n` quotients compared as unsigned.
+## Performance
 
-The fixed core reran those groups and every branch, ADDX/SUBX/NEGX and MULU
-(`docs/board_rerun_pico2w.txt`), and all now match the desktop.
-`tools/prec_check.py` parses every expression under both precedence tables;
-none of the cores or the shared chip sources differ now.
+Measured at 150 MHz, NTSC, over 30 seconds. The machine is paced to a real
+A500's frame (16,678 µs NTSC, 20,032 µs PAL). "Unpaced" is how fast it can run.
+"Slowest frame" is the longest one frame of emulation took.
 
-**Corpus errata.** The corpus was generated by an emulator, not recorded on a
-68000. Where it disagrees with the behaviour of cores verified against real
-hardware (Moira and UAE, checked with UAE's cputester on real 68000s; Musashi),
-the runner corrects the expectation to that behaviour and counts the test as
-an erratum — never as a pass:
-
-- ASR by more than the operand width of a negative value: every bit shifted
-  out is the sign, so X = C = 1 (the corpus has 0). 3,736 tests.
-- DIVU / DIVS overflow: N = 1, Z = 0 (the corpus leaves N and Z). 4,693 tests.
-- Two ASL.b tests whose expected register changed above the byte.
-- Timing: ADDQ/SUBQ.L to an address register is 8 cycles (User's Manual table
-  8-4, Moira; the corpus has 6); DIVS whose signed quotient overflows runs the
-  division before giving up (the corpus stops at 16/18).
-
-**The one failure:** DIVU #5744 (`DIVU (d16,A7),D0`, divide by zero): the
-corpus pushes the instruction's own address and N = 0; every other
-divide-by-zero test pushes the next instruction's address. Not explained.
-
-## The chips (`amiga/`)
-
-| File | What |
-|---|---|
-| `chipset.pmi` | registers, the shared state, chip RAM access |
-| `cia.pmi` | the two 8520s: ports, timers A/B (E clock), TOD, serial port, interrupts |
-| `copper.pmi` | the copper by time: MOVE, WAIT (masks, blitter-finished), SKIP, COPJMP, danger bit |
-| `denise.pmi` | bitplane and sprite DMA, the picture drawn by catch-up (mid-line register changes take effect where they happen), HAM, EHB, dual playfield, sprites with attach and priority |
-| `blitter.pmi` | area mode (shifts, masks, descending, inclusive/exclusive fill), line mode (octants, SING, texture), BBUSY for the blit's duration and the BLIT interrupt |
-| `paula.pmi` | four audio channels (DMA and CPU), the mixer, disk DMA with WORDSYNC, MFM tracks built from the .ADF (AmigaDOS format) and written back |
-| `input.pmi` | keyboard (serial with handshake, power-up codes), mouse, joystick |
-| `machine.pmi` | memory map (chip RAM mirrors, overlay, slow RAM, ROM mirror), custom register reads/writes, interrupt levels, the line scheduler |
-
-The scheduler runs the 68000 in slices up to the next event (a copper action,
-the end of a blit, the end of the line); at each line's end the picture line
-is finished, Paula mixes, the disk turns by two words, the keyboard may send
-and the CIAs advance.
-
-### Checks without a Kickstart (`tests/`, assembled by `tools/asm68k.py`)
-
-| ROM | What it proves (desktop) |
-|---|---|
-| `chiptest.s` | copper list (a colour per line), bitplane DMA and the display window, CPU drawing, blitter fill and XOR, blitter lines + area fill (a filled triangle), sprite DMA, serial port |
-| `disktest.s` | DF0 through CIA-B (select, motor, step to track 0 via /TK0), disk DMA after the sync word, DSKBLK: sector 0 decoded in 68000 code matches the .ADF |
-| `irqtest.s` | level 3 VERTB (100 in 2 s), level 2 CIA-A timer A (200 at 100 Hz), keyboard $FD $FE with handshake |
-| `audiotest.s` | Paula DMA: 501 Hz on channel 0 (499.3 computed), the 124-period floor on channel 1, AUD0 interrupts |
-| `bench.s` | 9.83 M instructions: 382 ms on the PC (25.7 M instructions/s) |
-
-`tools/mfm_check.py` decodes a track independently of the emulator (sync,
-odd/even longs, header and data checksums): 11 of 11 sectors good.
-
-## The desktop program (`desktop/`)
-
-```
-desktop/build.sh amiga              # the window program
-desktop/build.sh amiga_cli console  # the console runner
-desktop/run_check.sh                # the 68000 test corpus (regenerates the core)
-desktop\amiga.exe --rom <kickstart> [--adf disk.adf] [--df1 disk.adf] [--mute] [--pal] [--shot w.png --seconds S]
-desktop\amiga_cli.exe --rom <kickstart> [--adf disk.adf] [--frames N] [--shot pic.png] [--stamp] [--pal]
-```
-
-The window shows the picture (736 x 576, hires half-lines), the power and
-drive LEDs, and the panes CPU (registers, disassembly, the test corpus),
-Copper (the list at COP1LC), Blitter, Custom (registers, colours, sprites,
-audio), CIAs, Memory and Disks (Kickstart, DF0/DF1, a folder of .ADFs).
-F5 run/pause, F6 step, F7 frame, F8 reset, F9 warp, F11 full screen; the
-NTSC/PAL button switches the standard (a power cycle). The PC
-keyboard is the Amiga's (Windows keys = Amiga keys, Insert = Help); the mouse
-over the picture is the Amiga's mouse; the numeric pad (8 4 6 2, 0 = fire) or
-a gamepad is the joystick in port 2.
-
-## The Pico program (`src/`)
-
-```
-py -3 tools/gen_m68k.py                        # the cores (checked in)
-PureMetalForge.exe --compile src/amiga.picoplus2w -o build/amiga.uf2 [--port COMn]
-PureMetalForge.exe --compile src/amiga.feather2350 ...
-```
-
-Headless: the Amiga's serial port and the machine's state come out on USB
-serial. Commands:
-
-- `s` asks for a picture (hex).
-- `r` resets.
-- `k` + a key code types a key.
-- `d` + four hex digits dumps chip RAM after that frame. Diff it against
-  `amiga_cli --frames N --dump-chip`: the machine is deterministic, so the
-  two must be identical.
-
-Flash regions are set per board, clear of the PDP-11's packs and store:
-
-| Board | `kickstart` (512 KB, host word order) | `df0` (an .ADF) |
-|---|---|---|
-| Pico Plus 2 W | $800000 | $880000 |
-| Feather RP2350 | $040000 | $0C0000 |
-
-`tools/pico_machine.ps1` does the whole run under the board lease: build,
-write the regions, upload, then talk to the board. Use `-Dump` for a chip RAM
-dump and `-Shot` for a picture.
-
-**Speed at 150 MHz (2026-10-25, NTSC).** The whole program runs from SRAM.
-The machine is paced to the standard's frame, as a real A500 is: 16,678 µs
-NTSC (59.96 Hz), 20,032 µs PAL. "Unpaced" (the `f` command,
-`pico_machine.ps1 -Unpaced`) is how fast it can go. "Slowest frame" is the most
-time one frame's emulation took; "late" counts frames over the standard's frame.
-
-| Board | Program | Paced | Unpaced | Slowest frame | Late in 30 s | Busy: core 0 / core 1 |
+| Board | Program | Paced fps | Unpaced fps | Slowest frame | Late frames | Busy: core 0 / core 1 |
 |---|---|---|---|---|---|---|
-| Feather RP2350 (COM20), low 256 KB of chip RAM in SRAM | the PureMetal demo | **59.9** | 64.2 | 15.7 ms | 0 | 93% / 13% |
-| Feather RP2350 (COM20) | `tests/chiptest.rom` | **59.9** | 78.3 | 12.8 ms | 1 (at start-up, while it draws with the CPU) | |
-| Pico Plus 2 W (COM16), all chip RAM in PSRAM, Bluetooth built in | the PureMetal demo | **59.9** | 62.6 | 16.3 ms | 0 | 95% / 13% |
+| Feather RP2350 | the PureMetal demo | **59.9** | 64.2 | 15.7 ms | 0 | 93% / 13% |
+| Feather RP2350 | `tests/chiptest.rom` | **59.9** | 78.3 | 12.8 ms | 1, at start-up | |
+| Pico Plus 2 W | the PureMetal demo | **59.9** | 62.6 | 16.3 ms | 0 | 95% / 13% |
 
-**Both cores work.** Core 0 runs the machine. For every line it writes Paula's
-record: the samples due, the volumes, and each channel's output at the line's
-start and at every byte that starts in it, with its colour clock. Core 1 turns
-the records into samples (and, with a speaker, streams them). It sleeps on
-`wfe` between records; a core 1 spinning on the ring's indexes took SRAM cycles
-from core 0. The status line gives each core's busy share. With NTSC's shorter
-frame, the single-core build left the Plus 2 W behind: 59.3 to 59.6 fps,
-slowest frame 17.2 ms, about 100 late frames in 120. The Feather's slowest
-frame was 16.6 ms, inside the 16.68 ms budget.
+What made it fast. Each change was checked against the PC's chip RAM and audio
+before it was kept:
 
-Under PAL, before the NTSC and two-core work (2026-10-24), the demo ran
-paced at 50.0 on both boards. Unpaced it ran at 53.7 on the Feather and 52.6
-on the Plus 2 W, and `chiptest` at 64.5. Before any of this work the demo ran
-at 25 fps and `chiptest` at 33.
+- **Thumb-2 fast paths** at the top of the busiest 68000 handlers: MOVE,
+  MOVEA, CMP, BTST, Bcc/BRA, RTS, JSR, SWAP, EXT, CLR and ADD/AND to memory.
+  Any unusual case falls back to the full handler, so every rule still holds.
+- **A Thumb-2 blitter** for area blits: the demo's 2,682 words a frame went
+  from 5.1 ms to 1.6 ms.
+- **A Thumb-2 copper** and a computed same-line WAIT: 3.2 ms to 2.2 ms.
+- **Paula split across the cores.** Core 0 steps the channels (every DMA fetch
+  and interrupt on its line) and writes a small record per line. Core 1 turns
+  the records into samples. Core 1 sleeps on `wfe` between records, because a
+  spinning core 1 took memory cycles from core 0. Under NTSC this is what
+  keeps the Pico Plus 2 W at full speed: its slowest frame went from 17.2 ms to
+  16.3 ms.
 
-**How each step was proven.** The emulated machine is deterministic, so a
-board must produce exactly what the PC produces. `tools/pico_demo_check.sh
-[rom] [port] [board]` runs a program on the board and on the PC
-(`amiga_cli_48k`, the PC at the Picos' 48 kHz), then compares:
+On the PC the console runner does the demo at about 27 times real time.
 
-- chip RAM after frame 1000, byte for byte;
-- Paula's last 4,096 output samples.
+## Quick start (Pico)
 
-It fails outright if either dump is missing. At the end both programs were
-identical on both boards. Every core fast path also passes its 68000 corpus
-groups on the Pico 2 W, state and cycles. With the final core, the whole
-corpus on the Pico 2 W is again 990,590 exact, 9,469 errata and 1 fail
-(DIVU #5744), identical to the PC (`docs/board_corpus_pico2w_fastpaths.txt`).
+You need PureMetal Forge (the PureMetal compiler, which also uploads to the
+board), Python 3, and a Kickstart ROM image you are
+entitled to use (see [ROMs and disks](#roms-and-disks)).
 
-**What made it fast (each change gives the same results, only quicker):**
+1. **Prepare the Kickstart** (and, if you like, a disk) for the board's flash:
 
-- **The 68000 core:** Thumb fast paths at the top of the busiest handlers
-  (`tools/m68k_fast.py`, RP2350 only). They cover:
-  - MOVE.B/W/L to Dn, MOVE.W/L to (d16,An), MOVEA.L;
-  - CMP.W, BTST #n,Dn;
-  - every Bcc and BRA, RTS, JSR abs.l;
-  - SWAP, EXT, CLR.W;
-  - ADD.W/ADD.L/AND.W Dn,(d16,An).
+   ```
+   py -3 tools/pico_media.py kick kickstart.rom build/kick.bin
+   py -3 tools/pico_media.py adf  disk.adf      build/df0.bin
+   ```
 
-  The common modes (Dn, An, (d16,An), #imm) are covered, and a word read
-  from a chip register calls the read hook directly. Anything else (another
-  mode, an odd address, a ROM or chip page, a long across a page) goes to
-  the PureMetal handler, which still holds every rule.
-  - On `tests/speed/mem.s`, where four of the loop's five instructions
-    take fast paths, the cost per 68000 instruction fell from 130 host
-    cycles to about 90.
-  - In the demo, 6,366 of about 7,900 instructions a frame took a fast path
-    (counted before the second set was added).
-- **The blitter** (`src/blit_fast.pmi`): area blits without fill run in
-  Thumb, with a constant-D store loop, an A-to-D copy and a general row
-  loop. The demo's 2,682 words a frame went from 5.1 ms to 1.6 ms.
-- **Paula** (`src/audio_fast.pmi`): the line's stepping runs in Thumb-2,
-  while `AudioNextByte` still does every fetch and interrupt; the high byte
-  of a word is taken inline. 3.75 ms to 2.85 ms. Since 2026-10-25 the mixing
-  is on core 1, and core 0 only writes the line's record.
-- **The copper:** a WAIT on its own line is computed instead of scanning
-  colour clocks through a call each. Chip RAM reads are inline (`ChipWord`)
-  on the copper, sprite and Paula paths. 3.2 ms to 2.5 ms.
-- **`CustomRead`** tests INTREQR first, the register wait-for-VBLANK loops
-  poll.
-- **Building without the profile:** `#AM_PROFILE`, the per-part time profile
-  (`src/amiga_profile.feather2350`, `p`), costs about 1 ms a frame, so the
-  normal builds leave it out. The picture checksum is off unless asked for
-  with `c`.
+2. **Write them to the board's flash regions** (board connected by USB):
 
-Putting the low 256 KB of chip RAM in SRAM (Feather) changed the demo
-little, about 2%: its limit was never PSRAM traffic.
+   | Board | Kickstart | DF0 | Extended ROM ($E00000) |
+   |---|---|---|---|
+   | Feather RP2350 | `$040000` | `$0C0000` | `$1A0000` |
+   | Pico Plus 2 W | `$800000` | `$880000` | `$980000` |
 
-**Where the rest goes (the demo, Feather, profile build, per frame):**
+   ```
+   PureMetalForge.exe --storage-write build/kick.bin --offset $040000 -t rp2350 --port COM5
+   PureMetalForge.exe --storage-write build/df0.bin  --offset $0C0000 -t rp2350 --port COM5
+   ```
 
-| Part | ms |
+   The extended-ROM region is only needed for a ROM pair such as AROS's. Its
+   first word erased (`$FFFFFFFF`) means none: when changing from such a pair
+   to a plain Kickstart, write a 4 KB file of `$FF` bytes there.
+
+3. **Build and upload the firmware:**
+
+   ```
+   PureMetalForge.exe --compile src/amiga.feather2350 -o build/amiga.uf2 --port COM5
+   PureMetalForge.exe --compile src/amiga.picoplus2w  -o build/amiga.uf2 --port COM5
+   ```
+
+   Without `--port`, copy `build/amiga.uf2` to the board yourself: hold BOOTSEL
+   while plugging it in, then drag the file onto the drive that appears.
+
+4. **Talk to it** with any serial terminal on the board's USB port. It prints
+   `READY`, then a status line every two seconds: frames per second, the
+   emulated CPU speed, the slowest frame and each core's busy share.
+
+`tools/pico_machine.ps1` does all four steps in one command and captures the
+output:
+
+```
+powershell -File tools\pico_machine.ps1 -Port COM5 -Board feather2350 -Rom kickstart.rom -Adf disk.adf -Seconds 30
+powershell -File tools\pico_machine.ps1 -Port COM5 -Board picoplus2w -Rom demo\PureMetalDemo.rom -Shot demo.png
+```
+
+### Commands on USB serial
+
+| Key | Action |
 |---|---|
-| 68000 | about 8 |
-| Paula | 2.9 |
-| copper | 2.5 |
-| line start (sprite DMA, window) | 2.0 |
-| blitter | 1.6 |
-| everything else | 2.0 |
+| `s` | send the next picture (hex, one line per Amiga line); `pico_machine.ps1 -Shot` saves it as a PNG |
+| `r` | reset the Amiga |
+| `v` | switch between NTSC and PAL (with a reset) |
+| `k` + 2 hex digits | press and release a key (Amiga raw key code) |
+| `m` + dx dy | move the mouse (signed bytes, hex) |
+| `f` | run unpaced, as fast as it goes |
+| `d` + 4 hex digits | after that frame, dump chip RAM, slow RAM and the audio ring |
+| `t` + 4 hex digits | a state hash of every line for three frames (comparison with the PC) |
 
-The rest of the 68000's time goes to entering the core about 750 times a
-frame (once per copper event, about 270 host cycles each) and to the
-instructions still on PureMetal handlers.
+### Choosing NTSC or PAL on the Pico
 
-**PureMetal facts this ran into:**
+`#AMIGA_NTSC = 1` in the board's wrapper (`src/amiga.feather2350`,
+`src/amiga.picoplus2w`) starts the US machine; set it to 0 for PAL. The `v`
+command switches while it runs.
 
-- A procedure's locals always live in its stack frame. Every call zero-fills
-  them, and every statement stores its result and loads it again. A
-  four-line procedure shows it: `a = n + 1` becomes `ADDS r1, r0, #1` /
-  `STR r1, [sp, #12]` / `LDR r0, [sp, #12]`. That is why a compiled handler
-  costs about 100 host cycles and the fast paths are assembly.
-- Inline assembly is Thumb-1, plus udiv, movw, movt and smull/umull. Only
-  r0-r3, r5 and r12 are free inside the core: r4, r6 and r8-r11 hold its
-  reserved Globals, and r7 is the frame.
-- A `push`/`pop` inside the core's handler blocks broke every handler of
-  `M68kRun`, bisected on the board. The same balanced pair in a small
-  procedure compiles correctly, so the cause was not isolated. The fast paths
-  use no stack.
-- `Dim A(n)` has n elements in PureMetal (0 to n-1) and n+1 in PureBasic. A
-  constant index past the end is refused when compiling.
+### Sound (Pico Plus 2 W)
 
-**Sound (Pico Plus 2 W).** Paula writes mono 48 kHz (`#AUD_MONO`), and the
-compiler's Bluetooth A2DP library sends it to a speaker:
+Paula is mixed to mono 48 kHz and sent to a Bluetooth A2DP speaker. The
+published wrapper has no speaker address and runs silent. For sound:
 
-- Core 0 connects; core 1 streams (`src/audio_bt.pmi`).
-- With a speaker connected, the machine is paced to the standard's frame.
-- The published wrapper has no speaker address and runs silent. Put the
-  address in a private copy outside the repository, then run
-  `tools/pico_machine.ps1 -Source <copy> -Speaker`. The script takes the
-  SPEAKER lease after the board's, and puts the silent build back before
-  releasing it.
-- The radio firmware must be at $200000; the program checks for it.
-- The link key is kept at $960000.
+1. Copy `src/amiga.picoplus2w` outside the repository.
+2. Put your speaker's address in its `Speaker` data, as a phone shows it:
+   `AA:BB:CC:DD:EE:FF` becomes `Data.a $AA,$BB,$CC,$DD,$EE,$FF`.
+3. Include `amiga_pico.pmi` in the copy by its absolute path, and build it.
 
-The sound is built but not yet heard: COM16 was off the bus when it was
-tried.
+The radio firmware must be in flash at `$200000`; the program checks for it
+and says so. The link key is kept at `$960000`.
 
 ## ROMs and disks
 
-**AROS.** The `aros.rom` that AROSBootstrap loads is a HUNK executable whose
-four hunks need 1.45 MB of RAM. An A500 has 1 MB (512 KB chip and 512 KB
-slow), so the bootstrap route needs a fast-RAM expansion first. AROS's
-Kickstart-replacement ROM pair (`aros-ext.bin` at $E00000, `aros-rom.bin` at
-$F80000) needs none. The desktop takes that pair now:
+The Amiga's system software is not free software, and none of it is in this
+repository, in any commit. To run more than the included demo you need one of:
+
+- **Kickstart 1.2 or 1.3** (the A500's own ROMs, 256 KB). Read them from your
+  own Amiga with a ROM-dumping tool, or buy them in a licensed package such as
+  [Amiga Forever](https://www.amigaforever.com/). Encrypted
+  `rom.key` images are not supported; use a plain 262,144- or 524,288-byte
+  image.
+- **AROS**, the open-source AmigaOS-compatible system, from
+  [aros.org](https://aros.org/) under the AROS Public License. Use its
+  Kickstart-replacement ROM pair from the m68k boot ISO: `aros-rom.bin` at
+  `$F80000` (the Kickstart region) and `aros-ext.bin` at `$E00000` (the
+  extended-ROM region). The pair needs no extra RAM. The `aros.rom` loaded by
+  AROSBootstrap needs 1.45 MB, more than an A500 has.
+- **Disks** (`.ADF`): copies of floppies you own, or software whose authors
+  allow free distribution.
 
 ```
-amiga_cli --rom aros-rom.bin --ext aros-ext.bin
+desktop\amiga.exe --rom kick13.rom --adf workbench.adf
+desktop\amiga.exe --rom aros-rom.bin --ext aros-ext.bin --adf bootdisk-amiga-m68k.adf
 ```
 
-A single 1 MB file passed to `--rom` is split as extended ROM then ROM.
+A single 1 MB file passed to `--rom` is split into the extended ROM and the
+ROM.
 
-The pair from AROS's 2026-10-23 boot ISO goes where its residents say:
-`aros-rom.bin` at $F80000 (43 resident tags point at themselves there) and
-`aros-ext.bin` at $E00000 (31). On the desktop, AROS boots:
+With its boot floppy AROS reaches its shell window, then asks for the "AROS
+Live CD" volume (the floppy is meant to go with the CD, and an A500 has none).
+Under NTSC it opens a 200-line screen. On the Feather, AROS's chip and slow RAM
+match the PC byte for byte at frame 1500, 25 seconds in.
 
-- No disk: its boot screen, the cat's eyes and logo, AROS's insert-disk
-  screen (`docs/aros_desktop_noboot.png`).
-- With its boot floppy, `bootdisk-amiga-m68k.adf`, in DF0: the AROS shell
-  window (version b8f4b11c34, built 2026-10-23), which then asks for the
-  "AROS Live CD" volume. This A500 has no CD drive, and the floppy is meant to
-  go with the ISO (`docs/aros_desktop_floppy.png`).
+### No Kickstart: the built-in boot ROM
 
-On the Picos AROS runs as on the PC: its chip and slow RAM are byte for byte
-the PC's at frame 1500 (25 s of NTSC), on the Feather. Two faults stood in the
-way, both found by comparing a per-line state hash, then every instruction of
-the first differing line, between the board and the PC:
-
-- AROS writes FMODE ($DFF1FC), an AGA register. $1C0-$1FE were taken for
-  colours 32-63 and written past the 32 colours, onto the 68000's user stack
-  pointer on the Picos. An OCS machine now ignores them.
-- The desktop inserted DF0 write-protected, the Picos writable, and AROS keeps
-  /WPRO. Both now insert it write-protected.
-
-Under NTSC AROS opens a 200-line screen and reaches the same shell and
-requester.
-
-The images live in `C:\PMFBuild\roms-private\amiga\aros`, never in git.
-
-Kickstart and commercial disks are copyrighted: none are in this repository
-(`.gitignore` refuses `*.rom`, `*.adf`; the one exception is our own
-`bootrom/bootrom.rom`).
-
-### Booting a disk with no Kickstart (`bootrom/`)
-
-`bootrom/bootrom.s` is the emulator's own 256 KB boot ROM, assembled by
-`tools/asm68k.py` and embedded in the desktop programs. It does what
+`bootrom/bootrom.s` is the emulator's own boot ROM, written for this project
+and assembled by `tools/asm68k.py` into `bootrom/bootrom.rom`. It is the one
+ROM image in the repository and holds no Commodore code. It does what
 Kickstart's strap does for a disk that takes the machine over:
 
-- reads DF0's bootblock (sectors 0-1) by disk DMA;
-- checks for `DOS` and verifies the checksum;
-- enters the bootblock at +12 with A1 = a trackdisk request and A6 = a small
-  ExecBase.
+- it reads DF0's bootblock by disk DMA;
+- it checks for `DOS` and the checksum;
+- it enters the bootblock with a trackdisk request and a small ExecBase.
 
-The ExecBase provides:
-
-- AllocMem, AllocAbs, FreeMem and AvailMem;
-- DoIO, SendIO, WaitIO and CheckIO, handling CMD_READ and TD_MOTOR (other
-  trackdisk commands do nothing);
-- Forbid/Permit, Disable/Enable and CacheClearU;
-- FindResident and OpenLibrary, which return none.
-
-It stops loudly, on serial and with a red screen, on:
-
-- any other Exec call (its offset is printed);
-- a bad checksum;
-- a disk with no DOS bootblock;
-- no disk.
+The ExecBase answers AllocMem/FreeMem, DoIO and its relatives (read and
+motor), Forbid/Permit and Disable/Enable. Anything else stops loudly, on serial
+and with a red screen, naming the call. The desktop programs use it when no
+Kickstart is given:
 
 ```
-desktop/amiga_cli.exe --boot disk.adf --frames 300 --shot out.png
+desktop\amiga_cli.exe --boot demo\PureMetalDemo.adf --frames 500 --shot demo.png
 ```
 
-The window program uses the boot ROM whenever no Kickstart has been chosen.
-`tests/boot/` holds a bootblock that reads 20 KB across tracks 0-3 (both
-sides, one step) and a program that checks the sum of those bytes and counts
-VBLANK interrupts. Make the disk with `tests/boot/mkadf.py`, which prints the
-sum the program must report.
+### The PureMetal demo (`demo/`)
+
+An Amiga demo written entirely in PureMetal and compiled for the 68000 by
+PureMetal Forge, with no assembly. It has a shaded three-bitplane logo, copper
+bars, a sine scroller cut by the blitter, eight hardware sprites and a
+four-channel tune. It builds into a bootable `.adf` and a stand-alone 256 KB
+`.rom` that needs no Kickstart. See [demo/README.md](demo/README.md).
+
+![The demo under NTSC](docs/demo_ntsc.png)
+
+## The desktop program
+
+Windows, x64. You need [PureBasic](https://www.purebasic.com/) 6 (C back end)
+and the [Neon Arcade Display Engine](https://github.com/ajtaji/Neon-Arcade-Dispay-Engine)
+checked out beside this repository, or named by `NEON_ENGINE_DIR`
+(`tools/env.sh`).
+
+```
+desktop/build.sh amiga                # the window program -> desktop/amiga.exe
+desktop/build.sh amiga_cli console    # the console runner -> desktop/amiga_cli.exe
+desktop\amiga.exe --rom <kickstart> [--ext <extended rom>] [--adf disk.adf] [--df1 disk.adf] [--pal] [--mute]
+desktop\amiga_cli.exe --rom <kickstart> [--adf disk.adf] [--frames N] [--shot pic.png] [--pal]
+```
+
+The window shows the picture with the power and drive LEDs. Beside it are
+panes for the CPU (registers, disassembly, the 68000 test suite), Copper,
+Blitter, Custom registers, CIAs, Memory and Disks (Kickstart, DF0/DF1, a
+folder of `.ADF` files).
+
+### Controls
+
+| Input | Amiga |
+|---|---|
+| PC keyboard | Amiga keyboard (Windows keys = Amiga keys, Insert = Help) |
+| Mouse over the picture | Amiga mouse in port 1 |
+| Numeric pad 8 4 6 2, 0 = fire, or a gamepad | joystick in port 2 |
+| F5 / F6 / F7 | run or pause / one instruction / one frame |
+| F8 | reset |
+| F9 | warp (as fast as it goes) |
+| F11 | full screen |
+| NTSC/PAL button | switch the standard (a power cycle) |
+
+`amiga_cli` runs without a window. It prints what the Amiga sent on its
+serial port and where the CPU is, and can save the last picture. `--dump-chip
+<file>` saves chip RAM, slow RAM and the audio ring for comparison with a
+board.
+
+## Building from source
+
+| Part | Tool | Command |
+|---|---|---|
+| The 68000 cores (`src/m68k.pico`, `src/m68k.pico2`, `desktop/m68k_core.pbi`) | Python 3 | `py -3 tools/gen_m68k.py` (generated files are committed) |
+| Pico firmware | PureMetal Forge (2026-10-25 or later: Thumb-2 inline assembly) | `PureMetalForge.exe --compile src/amiga.feather2350 -o build/amiga.uf2` |
+| Desktop programs | PureBasic 6 x64, Neon engine | `desktop/build.sh amiga` |
+| Boot ROM, test ROMs | Python 3 | `py -3 tools/asm68k.py bootrom/bootrom.s bootrom/bootrom.rom` |
+| The demo | PureMetal Forge | `PureMetalForge.exe --compile demo/demo.amiga -o demo/PureMetalDemo.bin` |
+
+The scripts find the compiler through `PUREMETAL_FORGE` (or the PATH), the
+Neon engine through `NEON_ENGINE_DIR`, and the 68000 tests through
+`SST_680X0_DIR`. `tools/env.ps1` and `tools/env.sh` give the defaults. Put your
+own paths in `tools/local.ps1` or `tools/local.sh`; git ignores both.
+
+## Testing
+
+**The 68000 core** is checked against
+[SingleStepTests 680x0](https://github.com/SingleStepTests/680x0) (68000/v1,
+1,000,060 tests, MIT licensed, not included). Download it, then:
+
+```
+py -3 tools/vectors.py <the suite's 68000/v1 folder> tests/680x0/compact
+desktop/run_check.sh                  # the whole suite on the PC
+desktop/run_check.sh ADD              # the groups whose names start with ADD
+```
+
+The same runner (`Diagnostics/vectors_run.pmi`) judges every register, the
+status register, the PC, both stack pointers, every named byte and the cycle
+count, on the PC and on a board.
+
+| Where | Exact (state and cycles) | Suite errata | Fail |
+|---|---|---|---|
+| PC | 990,590 | 9,469 | 1 |
+| Pico 2 W (RP2350, 150 MHz), all 124 groups | 990,590 | 9,469 | 1 |
+
+The suite was generated by an emulator rather than recorded on a 68000. Where it
+disagrees with cores verified on real hardware (UAE's cputester results,
+Moira, Musashi), the runner applies the hardware behaviour and counts the test
+as an erratum, never as a pass. The cases are: ASR of a negative value by more
+than its width (X = C = 1), DIVU/DIVS overflow flags (N = 1, Z = 0), two ASL.b
+results, the cycle count of ADDQ/SUBQ.L to an address register, and overflowing
+DIVS timing. The single failure is DIVU test 5744, a divide by zero whose stacked
+PC differs from every other such test in the suite.
+
+**The chipset** has test ROMs that need no Kickstart (`tests/*.s`, assembled
+by `tools/asm68k.py`):
+
+| ROM | What it proves |
+|---|---|
+| `chiptest.s` | copper list, bitplane DMA and the display window, blitter fill, XOR, lines and area fill, sprites, the serial port |
+| `disktest.s` | the drive through CIA-B (motor, step to track 0), disk DMA after the sync word, a sector decoded by 68000 code matching the `.ADF` |
+| `irqtest.s` | VERTB interrupts, CIA-A timer A at 100 Hz, the keyboard handshake |
+| `audiotest.s` | Paula DMA at a known pitch, the period floor, audio interrupts |
+| `bench.s` | instruction throughput (25.7 M 68000 instructions/s on the PC) |
+
+`tools/mfm_check.py` decodes a track independently of the emulator.
+
+**Board against PC.** The machine is deterministic, so a board must produce
+exactly what the PC produces. Two scripts check that:
+
+- `tools/pico_demo_check.sh [rom] [port] [board]` runs a program on both and
+  compares chip RAM after frame 1000 and Paula's last 4,096 samples.
+- `tools/pico_compare.sh <frame> <rom> [ext] [adf] [port] [board]` compares
+  chip and slow RAM at any frame, with any Kickstart, ROM pair and disk.
+
+Results:
+
+- The demo: identical on the Feather and the Pico Plus 2 W under NTSC, and on
+  the Feather under PAL.
+- AROS (ROM pair and boot floppy): identical on the Feather at frame 1500,
+  under NTSC and under PAL. When they differ, `amiga_cli --trace` and the board's `t` command give a
+hash of every line, so the first differing line can be found. An instruction
+trace of that line then shows the cause.
+
+## Known limits
+
+- **Headless on the Pico**: no video output yet. The picture is read back over
+  USB.
+- **Every NTSC line is 227 colour clocks.** A real NTSC Agnus alternates 227
+  and 228, so the emulated frame rate is 59.96 Hz rather than 59.94.
+- **OCS only**: ECS and AGA registers ($1C0 and up) are ignored, as on an OCS
+  machine. There is no fast RAM, no hard disk and no second CPU.
+- **Programs written for PAL** lose their bottom lines under NTSC, as on a real
+  US machine. The demo's scroller, drawn while the beam is on screen, tears in
+  some frames under NTSC.
+- **Bluetooth sound** on the Pico Plus 2 W is built, but has not yet been
+  heard on a speaker.
+- **Commodore's Kickstart** has not been booted here: the test bench has no
+  image of it. The chipset follows the hardware reference and runs AROS,
+  whose ROM drives the same hardware, but Kickstart 1.3 and Workbench are
+  untested.
+- **Kickstart `rom.key` images** (Amiga Forever's encrypted ROMs) are not
+  supported.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `amiga/` | the chipset and the machine, one source for PureMetal and PureBasic |
+| `src/` | the Pico program, the board wrappers and the Thumb-2 parts (`*_fast.pmi`) |
+| `desktop/` | the window program, the console runner and the 68000 checker |
+| `tools/` | the core generator, the 68000 assembler, the media and board tools |
+| `bootrom/` | the emulator's own boot ROM |
+| `tests/` | the chipset test ROMs (source) and the boot-disk test |
+| `demo/` | the PureMetal demo |
+| `Diagnostics/` | the 68000 test runner and its board builds |
+| `docs/` | screenshots and the board test logs |
+
+## Licence
+
+MIT, `Copyright (c) 2026 ajtaji` (see [LICENSE](LICENSE)).
+
+Third-party material:
+
+- The demo's logo and scroller are rendered from **Lato**, under the SIL Open
+  Font License 1.1 ([demo/fonts/OFL.txt](demo/fonts/OFL.txt)).
+- The 68000 tests are **SingleStepTests 680x0** (MIT). They are downloaded by
+  the user, not included.
+- The desktop program builds against the **Neon Arcade Display Engine**, a
+  separate repository under its own licence.
+
+Amiga, AmigaOS and Kickstart are trademarks of their owners. This project is
+not affiliated with them.

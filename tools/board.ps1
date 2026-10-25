@@ -1,5 +1,5 @@
 # Board work on a shared board under ONE lease, held only while the jobs run.
-# The lease is taken and given back only through C:\PMFBuild\board-leases\lease.ps1.
+# The lease goes through tools\lease_turn.ps1: a shared bench's lease script, or none.
 #
 #   powershell -File tools\board.ps1 -Port COM7 -Jobs 'flash Diagnostics/x.picow Diagnostics/build/x.uf2 10',
 #                                     'vectors Diagnostics/vectors.picow Diagnostics/build/vectors.uf2 --only ADD'
