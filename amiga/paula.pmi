@@ -190,8 +190,8 @@ CompilerEndIf
 Procedure AudioLine()
   Protected n.i, k.i, c.i, l.i, r.i, chunk.i, last.i, act.i, per.i, cnt.i, v0.i, v1.i, v2.i, v3.i
   AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
-  n = AudAcc / 3546895
-  AudAcc = AudAcc - n * 3546895
+  n = AudAcc / AmCckHz
+  AudAcc = AudAcc - n * AmCckHz
   If n = 0
     For c = 0 To 3
       If AudOn(c) Or AudCpu(c)

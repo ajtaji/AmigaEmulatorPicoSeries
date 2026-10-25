@@ -6,6 +6,7 @@ EnableRunFromRAM
 #AM_COPPER_ASM = 1
 #AM_AUDIO_ASM = 1
 #AMIGA_PTRACE = 0             ; 1: the instruction trace ('j'), with an M68K_PTRACE=1 core
+#AMIGA_NTSC = 1              ; 1: the US A500 (60 Hz, 262/263 lines); 0: PAL (50 Hz, 312/313). 'v' switches
 #AM_PROFILE = 0                ; 1: the time profile ('p'), see src/amiga_profile.feather2350
 #CHIP_SRAM_KB = 256            ; the low chip RAM in SRAM (the rest in PSRAM)
 #AMIGA_AUDIO = 0              ; no radio on this board

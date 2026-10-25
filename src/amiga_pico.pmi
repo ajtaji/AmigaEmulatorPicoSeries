@@ -279,6 +279,16 @@ Procedure Commands()
       AmigaReset()
       Say("reset")
       Eol()
+    ElseIf c = 118
+      ; v: the other standard (NTSC <-> PAL), from a reset
+      AmigaNtsc = 1 - AmigaNtsc
+      AmigaReset()
+      If AmigaNtsc
+        Say("NTSC")
+      Else
+        Say("PAL")
+      EndIf
+      Eol()
     ElseIf c = 107
       v = (HexIn(RxWait()) << 4) | HexIn(RxWait())
       AmigaKey(v, 0)
@@ -313,7 +323,7 @@ Procedure Commands()
 EndProcedure
 
 Procedure Main()
-  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i, fs.i, fw.i, fmax.i, late.i, lateAll.i
+  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i, fs.i, fw.i, fmax.i, late.i, lateAll.i, fus.i
   SafetyBoot()
   ClockInitKhz(#CLOCK_KHZ)
   PokeL($E000EDFC, PeekL($E000EDFC) | $01000000)    ; DEMCR.TRCENA
@@ -375,6 +385,7 @@ Procedure Main()
     Say(" ms")
     Eol()
   EndIf
+  AmigaNtsc = #AMIGA_NTSC
   AmigaReset()
   If PeekA($10000000 + #DF0_OFFSET) = $44
     ; write-protected, as the desktop inserts it: the PSRAM copy is lost at reset, and a
@@ -420,12 +431,13 @@ Procedure Main()
     DispDrawOn = Bool(ShotNow Or (SumEvery > 0 And (FrameCount % 10) = 0))
     fs = Micros()
     AmigaRunFrame()
-    ; the frame's own work, in microseconds: PAL gives it 20,000
+    ; the frame's own work, in microseconds: NTSC gives it 16,678, PAL 20,032
     fw = Micros() - fs
+    fus = AmigaFrameUs()
     If fw > fmax
       fmax = fw
     EndIf
-    If fw > 20000
+    If fw > fus
       late = late + 1
       lateAll = lateAll + 1
     EndIf
@@ -453,9 +465,9 @@ Procedure Main()
       DumpAt = 0
     EndIf
     frames = frames + 1
-    ; the pace of a real A500: PAL's 50 frames a second ('f' turns it off to measure headroom)
+    ; the pace of a real A500: 59.96 frames a second NTSC, 49.92 PAL ('f' turns it off to measure headroom)
     If Unpaced = 0
-      pace = pace + 20000
+      pace = pace + fus
       While Micros() - pace < 0
         UsbSerialTask()
         SafetyPet()

@@ -132,8 +132,14 @@ MakeExec:
         move.w  #NLVO*6,16(a6)  ; lib_NegSize
         move.w  #632,18(a6)     ; lib_PosSize
         move.l  #$80000,62(a6)  ; MaxLocMem
-        move.b  #50,530(a6)     ; VBlankFrequency
-        move.b  #50,531(a6)     ; PowerSupplyFrequency
+        move.w  CUSTOM+4,d0     ; VPOSR: Agnus id $10 (bit 12) is the NTSC Agnus
+        btst    #12,d0
+        bne.s   .ntsc
+        moveq   #50,d0
+        bra.s   .vbf
+.ntsc:  moveq   #60,d0
+.vbf:   move.b  d0,530(a6)      ; VBlankFrequency
+        move.b  d0,531(a6)      ; PowerSupplyFrequency (the mains: 60 Hz with NTSC)
         move.l  a6,4            ; SysBase
         ; the trackdisk request
         lea     IOREQ,a1

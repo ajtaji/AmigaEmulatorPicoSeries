@@ -34,7 +34,7 @@ Global KeyCode.i, KeyChar.i, Wheel.i
 Global Dim KeyDown.i(256)
 Global Dim KeyMap.i(256)
 Global PadCount.i
-Global EmuAccum.d, EmuLastUs.q, EmuFrameUs.d = 1000000.0 / 50.0
+Global EmuAccum.d, EmuLastUs.q, EmuFrameUs.d = 1000000.0 / 60.0
 Global FpsShown.d, FpsFrames.i, FpsSince.q, MipsShown.d, CycSince.i
 Global ActiveTab.i, StatusLine.s, LastDraw.q
 Global ShotFile.s, ShotAtMs.q
@@ -135,6 +135,10 @@ Procedure MachinePower()
     HostUseBootRom()
   EndIf
   AmigaReset()
+  ; a real frame's length for the standard (NTSC 59.96 Hz, PAL 49.92), and a clean picture: an NTSC
+  ; frame leaves the rows below its last line alone
+  EmuFrameUs = (#AM_CCK_LINE * (AmLinesShort + 1)) * 1000000.0 / AmCckHz
+  FillMemory(@HostFrame(), #AM_OUT_W * #HOST_FRAME_H * 4, 0, #PB_Long)
   Paused = 0
   EmuAccum = 0
   EmuLastUs = HostUs()
@@ -337,11 +341,14 @@ Procedure Tick()
   If Neon_Button(x, 6 * s, 88 * s, toolH - 12 * s, "Frame  F7") : Paused = 1 : AmigaRunFrame() : EndIf : x + 94 * s
   If Neon_Button(x, 6 * s, 82 * s, toolH - 12 * s, "Reset  F8") : MachinePower() : EndIf : x + 88 * s
   If Neon_Button(x, 6 * s, 76 * s, toolH - 12 * s, "Warp  F9", Warp) : Warp = 1 - Warp : EndIf : x + 82 * s
+  ; the standard: NTSC (the US A500) or PAL - switching it is a power cycle
+  label = "NTSC" : If AmigaNtsc = 0 : label = "PAL" : EndIf
+  If Neon_Button(x, 6 * s, 56 * s, toolH - 12 * s, label) : AmigaNtsc = 1 - AmigaNtsc : MachinePower() : EndIf : x + 62 * s
   label = "Mute" : If SoundMuted : label = "Sound" : EndIf
   If Neon_Button(x, 6 * s, 70 * s, toolH - 12 * s, label, SoundMuted) : SoundMuted = 1 - SoundMuted : EndIf : x + 76 * s
-  Neon_Text(*Neon_FontMono, x + 8 * s, toolH / 2 - 8 * s, StrD(FpsShown, 1) + " fps  " + StrD(MipsShown, 2) + " M cycles/s (7.09 real)   " + StatusLine, Neon_C_DimR, Neon_C_DimG, Neon_C_DimB)
+  Neon_Text(*Neon_FontMono, x + 8 * s, toolH / 2 - 8 * s, StrD(FpsShown, 1) + " fps  " + StrD(MipsShown, 2) + " M cycles/s (" + StringField("7.09|7.16", AmigaNtsc + 1, "|") + " real)   " + StatusLine, Neon_C_DimR, Neon_C_DimG, Neon_C_DimB)
 
-  ; the picture: the PAL frame (736 x 576 hires half-lines) as large as fits
+  ; the picture: 736 x 576 hires half-lines (PAL's height; NTSC fills the top 474) as large as fits
   side = Round(620 * s, #PB_Round_Nearest)
   If side > PhysW * 0.5 : side = PhysW * 0.5 : EndIf
   gw = PhysW - side - 24 * s : gh = PhysH - toolH - 24 * s
@@ -402,6 +409,8 @@ Procedure Main()
     ElseIf a = "--adf" : k + 1 : adf = ProgramParameter(k)
     ElseIf a = "--df1" : k + 1 : df1 = ProgramParameter(k)
     ElseIf a = "--mute" : SoundMuted = 1
+    ElseIf a = "--pal" : AmigaNtsc = 0
+    ElseIf a = "--ntsc" : AmigaNtsc = 1
     ElseIf a = "--fast" : Warp = 1
     ElseIf a = "--tab" : k + 1 : ActiveTab = Val(ProgramParameter(k))
     ElseIf a = "--shot" : k + 1 : ShotFile = ProgramParameter(k) : If ShotAtMs = 0 : ShotAtMs = 5000 : EndIf

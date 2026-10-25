@@ -176,7 +176,8 @@ Procedure.i CustomRead(reg.i)
       v = v | #DMA_BZERO
     EndIf
   ElseIf reg = #R_VPOSR
-    v = (LongFrame << 15) | ((VPos >> 8) & 1)
+    ; the Agnus id in bits 14-8: $10 an NTSC OCS Agnus (8361), $00 a PAL one (8367)
+    v = (LongFrame << 15) | (AmigaNtsc << 12) | ((VPos >> 8) & 1)
   ElseIf reg = #R_VHPOSR
     h = AmigaHPos()
     v = ((VPos & $FF) << 8) | (h & $FF)
@@ -566,7 +567,14 @@ Procedure AmigaReset()
   CLeft = 0
   AmigaEBase = 0
   AmigaERem = 0
-  LinesThisFrame = #AM_LINES_SHORT + 1
+  If AmigaNtsc
+    AmLinesShort = 262
+    AmCckHz = 3579545
+  Else
+    AmLinesShort = 312
+    AmCckHz = 3546895
+  EndIf
+  LinesThisFrame = AmLinesShort + 1
   LongFrame = 1
   CopState = #COP_STOP
   BltActive = 0
@@ -664,13 +672,16 @@ Procedure AmigaRunLine()
     EndIf
     LineCyc0 = 0
     VPos = 0
+    ; the vertical display window closes with the frame: a stop line the frame never reaches (a PAL
+    ; window, DIWSTOP line 300, on NTSC's 262) loses the bottom, it does not run on into the next top
+    DiwVOn = 0
     FrameCount = FrameCount + 1
     If BplCon0 & 4
       LongFrame = LongFrame ! 1
     Else
       LongFrame = 1
     EndIf
-    LinesThisFrame = #AM_LINES_SHORT + LongFrame
+    LinesThisFrame = AmLinesShort + LongFrame
     IntReq = IntReq | #INT_VERTB
     AmigaSetIpl()
     CiaTodTick(0)

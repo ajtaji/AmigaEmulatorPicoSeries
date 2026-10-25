@@ -1,10 +1,10 @@
 ; Console run of the Amiga: no window.
 ;   amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png]
 ;             [--ext <extended ROM at $E00000>] [--slow KB] [--stamp]
-;             [--dump-chip file] [--dump-track N file]
+;             [--dump-chip file] [--dump-track N file] [--pal | --ntsc]
 ;   amiga_cli --boot <disk> [...]  no Kickstart: the built-in boot ROM starts
 ;             the disk's bootblock (bootrom/bootrom.s)
-; Runs N frames (default 250, five seconds of PAL), prints what the machine
+; The machine is the NTSC A500 unless --pal. Runs N frames (default 250), prints what the machine
 ; sent on its serial port, the frame rate reached and where the CPU is, and
 ; saves the last picture.
 XIncludeFile "amiga_host.pbi"
@@ -48,6 +48,10 @@ For k = 0 To CountProgramParameters() - 1
     ; --trace FROM TO: a line-by-line state hash for frames FROM..TO-1 (to compare with a board)
     k + 1 : AmigaTraceFrom = Val(ProgramParameter(k))
     k + 1 : AmigaTraceTo = Val(ProgramParameter(k))
+  ElseIf a = "--pal"
+    AmigaNtsc = 0
+  ElseIf a = "--ntsc"
+    AmigaNtsc = 1
   ElseIf a = "--stamp"
     HostSerialStamp = 1
   ElseIf a = "--dump-chip"
@@ -58,7 +62,7 @@ For k = 0 To CountProgramParameters() - 1
   EndIf
 Next
 If rom = ""
-  PrintN("usage: amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png] [--slow KB]")
+  PrintN("usage: amiga_cli --rom <kickstart> [--adf <disk>] [--frames N] [--shot out.png] [--slow KB] [--pal]")
   PrintN("       amiga_cli --boot <disk.adf> [...]   (no Kickstart: the built-in boot ROM)")
   End 2
 EndIf
@@ -106,7 +110,7 @@ If HostSerial <> ""
   PrintN("serial:")
   PrintN(HostSerial)
 EndIf
-PrintN("frames " + Str(frames) + " in " + Str(t1) + " ms = " + StrF(frames * 1000.0 / t1, 1) + " fps (PAL is 50)")
+PrintN("frames " + Str(frames) + " in " + Str(t1) + " ms = " + StrF(frames * 1000.0 / t1, 1) + " fps (" + StringField("PAL is 49.92|NTSC is 59.96", AmigaNtsc + 1, "|") + ")")
 PrintN("CPU cycles " + Str(AmigaCpuCycles) + "  PC=" + Hex(M68kGetPC()) + " SR=" + Hex(M68kGetSR()) + " stopped=" + Str(Stopped) + " halted=" + Str(Halted))
 PrintN("DMACON=" + Hex(DmaCon) + " INTENA=" + Hex(IntEna) + " INTREQ=" + Hex(IntReq) + " BPLCON0=" + Hex(BplCon0) + " COP1LC=" + Hex(Cop1Lc) + " copper state " + Str(CopState))
 PrintN("drive 0 track " + Str(DrvTrack(0)) + " motor " + Str(DrvMotor(0)) + " side " + Str(DrvSide))

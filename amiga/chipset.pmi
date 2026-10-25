@@ -104,11 +104,20 @@
 #INT_EXTER = $2000
 #INT_INTEN = $4000
 
-; The beam (PAL): 227 colour clocks a line, 312 lines a frame (313 in a long
-; frame). The CPU clock is two colour clocks... per colour clock: 2 CPU cycles.
+; The beam: 227 colour clocks a line; the CPU clock is two colour clocks.
+; NTSC (the US A500, the default): 262 lines a frame (263 in a long frame), a
+; colour clock of 3,579,545 Hz - 59.96 frames a second. PAL: 312/313 lines,
+; 3,546,895 Hz - 49.92. AmigaNtsc chooses (set it before AmigaReset). A real
+; NTSC Agnus alternates 227- and 228-clock lines; here every line has 227.
 #AM_CCK_LINE = 227
 #AM_CPU_LINE = 454
-#AM_LINES_SHORT = 312
+Global AmigaNtsc.i = 1
+Global AmLinesShort.i = 262, AmCckHz.i = 3579545
+
+; A whole (long) frame in microseconds: 16,678 NTSC, 20,032 PAL (32-bit safe)
+Procedure.i AmigaFrameUs()
+  ProcedureReturn (#AM_CCK_LINE * (AmLinesShort + 1) * 10000) / (AmCckHz / 100)
+EndProcedure
 
 ; The output picture: hires pixels from DIW horizontal position #AM_OUT_X0
 ; (in lowres pixels) and lines from #AM_OUT_Y0, #AM_OUT_W x #AM_OUT_H.
