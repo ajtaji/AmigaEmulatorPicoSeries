@@ -51,6 +51,7 @@ def main():
     rows = None
     chip = None
     aud = None
+    slow = None
     aud_wr = 0
     dump_sent = False
     prof_sent = False
@@ -93,6 +94,15 @@ def main():
                 open(a.dump, 'wb').write(chip)
                 print(f'chip RAM: {a.dump} ({len(chip)} bytes)')
                 chip = None
+                slow = bytearray()
+                continue
+            if s == 'SEND' and slow is not None:
+                open(a.dump + '.slow', 'wb').write(slow)
+                print(f'slow RAM: {a.dump}.slow ({len(slow)} bytes)')
+                slow = None
+                continue
+            if slow is not None and s.startswith('S') and not s.startswith('S:'):
+                slow += bytes.fromhex(s[1:])
                 continue
             if s.startswith('AUD wr='):
                 aud = bytearray()

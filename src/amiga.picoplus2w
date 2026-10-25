@@ -8,6 +8,9 @@
 EnableRunFromRAM
 #CLOCK_KHZ = 150000
 #M68K_ASM_TAIL = 1
+#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula (src/*_fast.pmi)
+#AM_COPPER_ASM = 1
+#AM_AUDIO_ASM = 1
 #AM_PROFILE = 0                ; 1: the time profile ('p'), see src/amiga_profile.feather2350
 #CHIP_SRAM_KB = 0              ; the low chip RAM in SRAM (the rest in PSRAM)
 #AMIGA_AUDIO = 1
@@ -31,6 +34,7 @@ XIncludeFile "Shared/Bluetooth/sbc.pmi"
 XIncludeFile "Shared/Bluetooth/bt_audio.pmi"
 #KICK_OFFSET = $800000        ; above the PDP-11 packs and store (up to $7FFFFF) and the NES store
 #DF0_OFFSET = $880000
+#EXT_OFFSET = $980000        ; an extended ROM (AROS), 512 KB
 XIncludeFile "amiga_pico.pmi"
 DataSection
 Speaker:

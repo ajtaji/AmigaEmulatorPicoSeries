@@ -72,9 +72,18 @@ Procedure.i CopperWaitPos(h.i)
   ProcedureReturn -1
 EndProcedure
 
+CompilerIf #AM_COPPER_ASM = 1
+  ; the platform's own loop (the RP2350: src/copper_fast.pmi)
+  Declare CopperRunFast(t.i)
+CompilerEndIf
+
 ; Run every copper action due at or before CPU cycle t.
 Procedure CopperRun(t.i)
   Protected ir1.i, ir2.i, h.i, reg.i, at.i, bt.i
+  CompilerIf #AM_COPPER_ASM = 1
+    CopperRunFast(t)
+    ProcedureReturn
+  CompilerEndIf
   While CopState <> #COP_STOP And CopNextCyc <= t
     If (DmaCon & (#DMA_EN | #DMA_COP)) <> (#DMA_EN | #DMA_COP)
       CopNextCyc = LineCyc0 + #AM_CPU_LINE

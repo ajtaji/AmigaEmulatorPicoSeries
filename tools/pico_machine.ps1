@@ -3,6 +3,7 @@
 # upload the firmware, then talk to it (tools/pico_session.py).
 #
 #   powershell -File tools\pico_machine.ps1 -Port COM20 -Board feather2350 -Rom tests\chiptest.rom
+#              [-Ext extended.rom]   (AROS: -Rom aros-rom.bin -Ext aros-ext.bin)
 #              [-Adf disk.adf] [-Seconds 30] [-ShotAt 20] [-Shot docs\pico_chiptest.png]
 #              [-Dump chip.bin -DumpFrame 400]   chip RAM after that frame (diff with amiga_cli --dump-chip)
 #              [-Source private.picoplus2w -Speaker]   a private wrapper with the speaker's address;
@@ -13,6 +14,7 @@ param(
     [string]$Board = 'feather2350',
     [string]$Rom = '',
     [string]$Adf = '',
+    [string]$Ext = '',
     [int]$Seconds = 30,
     [int]$ShotAt = 20,
     [string]$Shot = '',
@@ -22,11 +24,12 @@ param(
     [switch]$Speaker,
     [int]$Prof = 0,
     [switch]$Unpaced,
-    [int]$DumpFrame = 400
+    [int]$DumpFrame = 400,
+    [string]$LeasePort = ''      # the lease's board name when the board shows up on another port (BOARDS.md names it)
 )
 $ErrorActionPreference = 'Stop'
 # the flash regions of each board's wrapper (srcmiga.<board>)
-if ($Board -eq 'feather2350') { $KickOffset = '$040000'; $Df0Offset = '$0C0000' } else { $KickOffset = '$800000'; $Df0Offset = '$880000' }
+if ($Board -eq 'feather2350') { $KickOffset = '$040000'; $Df0Offset = '$0C0000'; $ExtOffset = '$1A0000' } else { $KickOffset = '$800000'; $Df0Offset = '$880000'; $ExtOffset = '$980000' }
 $root = Split-Path $PSScriptRoot -Parent
 $pmf = 'C:\Users\ajtaj\Desktop\Github\PureBasicCode\OpenGl Work\ArduinoBasic\PureMetalForge.exe'
 . (Join-Path $PSScriptRoot 'lease_turn.ps1')
@@ -45,6 +48,13 @@ $src = $silent
 if ($Source) { $src = (Resolve-Path $Source).Path }
 $uf2 = Join-Path $build "amiga_$Board.uf2"
 Forge ('--compile "' + $src + '" -o "' + $uf2 + '"') (Join-Path $build 'pm_build.log')
+if ($Ext) {
+    & py -3 (Join-Path $PSScriptRoot 'pico_media.py') kick $Ext (Join-Path $build 'ext.bin')
+    if ($LASTEXITCODE -ne 0) { throw 'pico_media.py kick (extended ROM) failed' }
+} elseif ($Rom) {
+    # no extended ROM with this one: erase the region's first page so the board maps none
+    [IO.File]::WriteAllBytes((Join-Path $build 'ext.bin'), [byte[]](,0xFF * 4096))
+}
 if ($Rom) {
     & py -3 (Join-Path $PSScriptRoot 'pico_media.py') kick $Rom (Join-Path $build 'kick.bin')
     if ($LASTEXITCODE -ne 0) { throw 'pico_media.py kick failed' }
@@ -58,7 +68,9 @@ if ($Speaker) {
     $silentUf2 = Join-Path $build "amiga_${Board}_silent.uf2"
     Forge ('--compile "' + $silent + '" -o "' + $silentUf2 + '"') (Join-Path $build 'pm_silent.log')
 }
-$lease = Get-AmigaPort $Port 'amiga-machine' $Minutes
+$leaseName = $Port
+if ($LeasePort) { $leaseName = $LeasePort }
+$lease = Get-AmigaPort $leaseName 'amiga-machine' $Minutes
 "lease taken $(Get-Date -Format T): $($lease.Tag)"
 $spk = $null
 try {
@@ -68,12 +80,14 @@ try {
     }
     if ($Rom) {
         Forge ('--storage-write "' + (Join-Path $build 'kick.bin') + '" --offset ' + $KickOffset + ' -t rp2350 --port ' + $Port) (Join-Path $build 'pm_kick.log')
+        Forge ('--storage-write "' + (Join-Path $build 'ext.bin') + '" --offset ' + $ExtOffset + ' -t rp2350 --port ' + $Port) (Join-Path $build 'pm_ext.log')
     }
     if ($Adf) {
         Forge ('--storage-write "' + (Join-Path $build 'df0.bin') + '" --offset ' + $Df0Offset + ' -t rp2350 --port ' + $Port) (Join-Path $build 'pm_df0.log')
     }
     Forge ('--compile "' + $src + '" -o "' + $uf2 + '" --port ' + $Port) (Join-Path $build 'pm_upload.log')
-    $args2 = @('--port', $Port, '--seconds', $Seconds)
+    # our own firmware comes back under the board's own name (the lease's), whatever port it went in by
+    $args2 = @('--port', $leaseName, '--seconds', $Seconds)
     if ($Shot) { $args2 += @('--shot', $Shot, '--at', $ShotAt) }
     if ($Dump) { $args2 += @('--dump', $Dump, '--dump-frame', $DumpFrame) }
     if ($Prof) { $args2 += @('--prof', $Prof) }

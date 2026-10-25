@@ -4,6 +4,9 @@
 EnableRunFromRAM
 #CLOCK_KHZ = 150000
 #M68K_ASM_TAIL = 1
+#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula (src/*_fast.pmi)
+#AM_COPPER_ASM = 1
+#AM_AUDIO_ASM = 1
 #AM_PROFILE = 1
 #CHIP_SRAM_KB = 256            ; the low chip RAM in SRAM (the rest in PSRAM)
 #AMIGA_AUDIO = 0              ; no radio on this board
@@ -15,4 +18,5 @@ XIncludeFile "RP2350/Lib/safety.pico2"
 XIncludeFile "RP2350/Lib/psram.pico2"
 #KICK_OFFSET = $040000        ; below the PDP-11 packs ($240000 up) and store ($700000)
 #DF0_OFFSET = $0C0000
+#EXT_OFFSET = $1A0000        ; an extended ROM (AROS), 512 KB
 XIncludeFile "amiga_pico.pmi"

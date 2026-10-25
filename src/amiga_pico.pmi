@@ -22,6 +22,9 @@ EnableExplicit
 ; #KICK_OFFSET and #DF0_OFFSET come from the board's wrapper (clear of what else lives in its flash)
 FlashRegion "kickstart", #KICK_OFFSET, $80000, "raw"
 FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
+; an extended ROM at $E00000 (AROS's aros-ext.bin with aros-rom.bin in "kickstart"); its
+; first long erased ($FFFFFFFF) means none - tools/pico_machine.ps1 -Ext writes it, -Rom alone clears it
+FlashRegion "kickext", #EXT_OFFSET, $80000, "raw"
 
 #PS_CHIP = $000000
 #PS_SLOW = $080000
@@ -31,11 +34,11 @@ FlashRegion "df0", #DF0_OFFSET, $DC000, "raw"
 #AUD_RING = 4096
 #AUD_RATE = 48000
 #AUD_MONO = 1
+; #AM_BLIT_ASM, #AM_COPPER_ASM, #AM_AUDIO_ASM (the Thumb blitter, copper and Paula of
+; blit_fast.pmi, copper_fast.pmi, audio_fast.pmi) come from the board's wrapper.
 ; where the time goes: #AM_PROFILE = 1 in the wrapper (src/amiga_profile.feather2350) times each
 ; part of the line with the M33's cycle counter (DWT CYCCNT, enabled in Main); 'p' prints it.
 ; It costs about 1 ms a frame, so the normal builds leave it out.
-#AM_BLIT_ASM = 1      ; area blits without fill: src/blit_fast.pmi
-#AM_AUDIO_ASM = 1     ; Paula's line of mono audio: src/audio_fast.pmi (#AUD_RING 4096)
 Macro AmClock()
   PeekL($E0001004)
 EndMacro
@@ -51,6 +54,7 @@ XIncludeFile "../amiga/paula.pmi"
 XIncludeFile "audio_fast.pmi"
 XIncludeFile "../amiga/input.pmi"
 XIncludeFile "../amiga/machine.pmi"
+XIncludeFile "copper_fast.pmi"
 XIncludeFile "io.pmi"
 CompilerIf #AMIGA_AUDIO = 1
   XIncludeFile "audio_bt.pmi"
@@ -141,6 +145,20 @@ Procedure DumpChip()
     SafetyPet()
   Next
   Say("CEND")
+  Eol()
+  ; slow RAM ($C00000) the same way: "S" lines, then "SEND"
+  For a = 0 To AmigaSlowBytes - 64 Step 64
+    UsbSerialWrite(83)
+    For b = 0 To 63
+      v = PeekA(AmigaSlowHost + ((a + b) ! 1))
+      HexDigit(v >> 4)
+      HexDigit(v)
+    Next
+    Eol()
+    UsbSerialTask()
+    SafetyPet()
+  Next
+  Say("SEND")
   Eol()
   ; Paula's ring as it stands (mono samples, oldest first after AudWr)
   Say("AUD wr=")
@@ -289,6 +307,13 @@ Procedure Main()
   Next
   AmigaRomHost = $10000000 + #KICK_OFFSET
   AmigaRomBytes = $80000
+  AmigaExtHost = $10000000 + #EXT_OFFSET
+  AmigaExtBytes = 0
+  If PeekL(AmigaExtHost) <> -1
+    AmigaExtBytes = $80000
+    Say("extended ROM at $E00000")
+    Eol()
+  EndIf
   w = PeekL(AmigaRomHost)
   If w = -1
     Say("the kickstart region is empty: write it with --storage-write (tools/pico_media.py makes the file)")

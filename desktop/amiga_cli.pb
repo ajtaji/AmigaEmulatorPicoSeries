@@ -132,6 +132,13 @@ If chipFile <> ""
     WriteByte(f, m & 255)
   Next
   CloseFile(f)
+  ; slow RAM beside it (chipFile + ".slow"), big-endian
+  f = CreateFile(#PB_Any, chipFile + ".slow")
+  For w = 0 To AmigaSlowBytes - 2 Step 2
+    WriteByte(f, PeekA(AmigaSlowHost + w + 1))
+    WriteByte(f, PeekA(AmigaSlowHost + w))
+  Next
+  CloseFile(f)
   ; chip RAM, big-endian as the 68000 sees it
   f = CreateFile(#PB_Any, chipFile)
   For w = 0 To $7FFFE Step 2

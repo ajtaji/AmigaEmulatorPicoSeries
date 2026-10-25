@@ -1,0 +1,284 @@
+; The copper's scheduler loop in Thumb-2 (RP2350): what amiga/copper.pmi's
+; CopperRun does when #AM_COPPER_ASM = 1, statement for statement. A MOVE to a
+; colour register (392 of the PureMetal demo's 456 MOVEs a frame) is done here
+; exactly as CustomWriteAt does it; every other register goes to CustomWriteAt
+; itself, a WAIT's position to CopperWaitPos, a SKIP's test to CopperCond and
+; the blitter-finished wait to BlitBusy - the PureMetal procedures, unchanged.
+; The PureMetal loop cost about 400 host cycles per call (932 calls a frame,
+; 2.5 ms); its proof is the demo's chip RAM and Paula output matching the PC.
+;
+; State lives in the Globals (read again after every call); CopT is the time
+; the caller runs the copper up to, CopAt the time of the action in hand.
+; Constants written as numbers below: #COP_RUN 0, #COP_WAIT 1, #COP_STOP 2,
+; #DMA_EN | #DMA_COP = 640, #AM_CPU_LINE = 454, #R_COLOR00 = 384.
+
+Global CopT.i, CopAt.i, CopH.i, CopIr1.i, CopIr2.i, CopBt.i
+
+Procedure CopperRunAsm()
+  ASM
+  cpf_loop:
+    ldr r0, =global_copstate
+    ldr r0, [r0]
+    cmp r0, #2
+    beq cpf_done
+    ldr r1, =global_copnextcyc
+    ldr r1, [r1]
+    ldr r2, =global_copt
+    ldr r2, [r2]
+    cmp r1, r2
+    bgt cpf_done
+    ldr r2, =global_dmacon
+    ldr r2, [r2]
+    and r2, r2, #640
+    cmp r2, #640
+    beq cpf_dma
+    ldr r2, =global_linecyc0
+    ldr r2, [r2]
+    movw r3, #454
+    add r2, r2, r3
+    ldr r3, =global_copnextcyc
+    str r2, [r3]
+    b cpf_done
+  cpf_dma:
+    ldr r2, =global_copat
+    str r1, [r2]
+    cmp r0, #1
+    beq cpf_wait
+    ; ---- RUN: fetch the instruction's two words
+    ldr r3, =global_coppc
+    ldr r0, [r3]
+    ldr r2, =global_chipmask
+    ldr r2, [r2]
+    bic r2, r2, #1
+    and r1, r0, r2
+    lsr r5, r1, #16
+    ldr r12, =global_chipbase
+    ldr r5, [r12, r5, lsl #2]
+    ldrh r5, [r5, r1]
+    ldr r12, =global_copir1
+    str r5, [r12]
+    add r1, r0, #2
+    and r1, r1, r2
+    lsr r5, r1, #16
+    ldr r12, =global_chipbase
+    ldr r5, [r12, r5, lsl #2]
+    ldrh r5, [r5, r1]
+    ldr r12, =global_copir2
+    str r5, [r12]
+    add r0, r0, #4
+    ldr r2, =global_chipmask
+    ldr r2, [r2]
+    and r0, r0, r2
+    str r0, [r3]
+    ; h = (at - LineCyc0) >> 1
+    ldr r0, =global_copat
+    ldr r0, [r0]
+    ldr r1, =global_linecyc0
+    ldr r1, [r1]
+    sub r0, r0, r1
+    asr r0, r0, #1
+    ldr r1, =global_coph
+    str r0, [r1]
+    ldr r0, =global_copir1
+    ldr r0, [r0]
+    tst r0, #1
+    bne cpf_waitskip
+    ; ---- MOVE
+    movw r1, #510
+    and r0, r0, r1
+    cmp r0, #64
+    blt cpf_stop
+    cmp r0, #128
+    bge cpf_legal
+    ldr r1, =global_copcon
+    ldr r1, [r1]
+    tst r1, #2
+    beq cpf_stop
+  cpf_legal:
+    ldr r1, =global_copskip
+    ldr r2, [r1]
+    cmp r2, #0
+    beq cpf_write
+    movs r2, #0
+    str r2, [r1]
+    b cpf_moved
+  cpf_write:
+    ldr r1, =global_copactive
+    movs r2, #1
+    str r2, [r1]
+    ldr r1, =global_coptime
+    ldr r2, =global_copat
+    ldr r2, [r2]
+    str r2, [r1]
+    cmp r0, #384
+    blt cpf_other
+    ; a colour register, as CustomWriteAt does it: Cust, catch the display up, Color
+    ldr r1, =global_copir2
+    ldr r1, [r1]
+    ldr r2, =global_cust
+    ; (Cust's index scaled by hand: the halfword scaled-index form is refused, forum 1422)
+    lsr r3, r0, #1
+    lsl r3, r3, #1
+    strh r1, [r2, r3]
+    ldr r1, =global_coph
+    ldr r0, [r1]
+    bl dispcatchup
+    ldr r0, =global_copir1
+    ldr r0, [r0]
+    movw r1, #510
+    and r0, r0, r1
+    sub r0, r0, #384
+    lsr r0, r0, #1
+    ldr r1, =global_copir2
+    ldr r1, [r1]
+    movw r2, #4095
+    and r1, r1, r2
+    ldr r2, =global_color
+    lsl r0, r0, #1
+    strh r1, [r2, r0]
+    b cpf_written
+  cpf_other:
+    ldr r1, =global_copir2
+    ldr r1, [r1]
+    ldr r2, =global_coph
+    ldr r2, [r2]
+    bl customwriteat
+  cpf_written:
+    ldr r1, =global_copactive
+    movs r2, #0
+    str r2, [r1]
+  cpf_moved:
+    ; If CopState = RUN And CopNextCyc = at: CopNextCyc = at + 8
+    ldr r0, =global_copstate
+    ldr r0, [r0]
+    cmp r0, #0
+    bne cpf_loop
+    ldr r1, =global_copnextcyc
+    ldr r2, [r1]
+    ldr r3, =global_copat
+    ldr r3, [r3]
+    cmp r2, r3
+    bne cpf_loop
+    add r3, r3, #8
+    str r3, [r1]
+    b cpf_loop
+  cpf_stop:
+    ldr r1, =global_copstate
+    movs r2, #2
+    str r2, [r1]
+    b cpf_done
+    ; ---- WAIT or SKIP: remember the two words
+  cpf_waitskip:
+    ldr r1, =global_copwait1
+    str r0, [r1]
+    ldr r1, =global_copir2
+    ldr r1, [r1]
+    ldr r2, =global_copwait2
+    str r1, [r2]
+    tst r1, #1
+    beq cpf_iswait
+    ; SKIP: the next MOVE is skipped when the beam is past the position
+    ldr r0, =global_vpos
+    ldr r0, [r0]
+    ldr r1, =global_coph
+    ldr r1, [r1]
+    add r1, r1, #2
+    bl coppercond
+    cmp r0, #0
+    beq cpf_skipnext
+    ldr r1, =global_copskip
+    movs r2, #1
+    str r2, [r1]
+  cpf_skipnext:
+    ldr r1, =global_copat
+    ldr r1, [r1]
+    add r1, r1, #8
+    ldr r2, =global_copnextcyc
+    str r1, [r2]
+    b cpf_loop
+  cpf_iswait:
+    movw r2, #65535
+    cmp r0, r2
+    bne cpf_wait4
+    movw r2, #65534
+    cmp r1, r2
+    beq cpf_stop
+  cpf_wait4:
+    ldr r1, =global_copstate
+    movs r2, #1
+    str r2, [r1]
+    ldr r1, =global_copat
+    ldr r1, [r1]
+    add r1, r1, #4
+    ldr r2, =global_copnextcyc
+    str r1, [r2]
+    b cpf_loop
+    ; ---- a WAIT in progress: when does it end?
+  cpf_wait:
+    ldr r0, =global_copat
+    ldr r0, [r0]
+    ldr r1, =global_linecyc0
+    ldr r1, [r1]
+    sub r0, r0, r1
+    asr r0, r0, #1
+    bl copperwaitpos
+    cmp r0, #0
+    bge cpf_found
+    ldr r2, =global_linecyc0
+    ldr r2, [r2]
+    movw r3, #454
+    add r2, r2, r3
+    ldr r3, =global_copnextcyc
+    str r2, [r3]
+    b cpf_done
+  cpf_found:
+    ; bt = LineCyc0 + h * 2 + 4
+    ldr r1, =global_linecyc0
+    ldr r1, [r1]
+    add r0, r1, r0, lsl #1
+    add r0, r0, #4
+    ldr r1, =global_copbt
+    str r0, [r1]
+    ldr r1, =global_copwait2
+    ldr r1, [r1]
+    tst r1, #32768
+    bne cpf_nobfd
+    bl blitbusy
+    cmp r0, #0
+    beq cpf_nobfd
+    ; WAIT also for the blitter: retry on the next colour clocks
+    ldr r1, =global_copat
+    ldr r1, [r1]
+    add r1, r1, #8
+    ldr r2, =global_copbt
+    ldr r2, [r2]
+    cmp r2, r1
+    ble cpf_retry
+    mov r1, r2
+  cpf_retry:
+    ldr r2, =global_copnextcyc
+    str r1, [r2]
+    b cpf_loop
+  cpf_nobfd:
+    ldr r0, =global_copbt
+    ldr r0, [r0]
+    ldr r1, =global_copat
+    ldr r1, [r1]
+    cmp r0, r1
+    bge cpf_btok
+    mov r0, r1
+  cpf_btok:
+    ldr r1, =global_copstate
+    movs r2, #0
+    str r2, [r1]
+    ldr r1, =global_copnextcyc
+    str r0, [r1]
+    b cpf_loop
+  cpf_done:
+  EndASM
+EndProcedure
+
+Procedure CopperRunFast(t.i)
+  CopT = t
+  CopperRunAsm()
+EndProcedure
