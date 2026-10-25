@@ -1,7 +1,9 @@
 # Amiga 500 for the Raspberry Pi Pico series and the desktop — PureMetal and PureBasic
 
-A Commodore Amiga 500 (OCS chipset, PAL) emulator, written twice from one
-source tree:
+A Commodore Amiga 500 (OCS chipset) emulator, written twice from one source
+tree. It is the US machine by default - NTSC, 60 frames a second, 262/263
+lines, a 3,579,545 Hz colour clock - with PAL (50 Hz, 312/313 lines) one switch
+away:
 
 - **on the Pico** in PureMetal, for the RP2350 boards with 8 MB of QSPI PSRAM
   (Pimoroni Pico Plus 2 W, Adafruit Feather RP2350 HSTX);
@@ -132,15 +134,16 @@ odd/even longs, header and data checksums): 11 of 11 sectors good.
 desktop/build.sh amiga              # the window program
 desktop/build.sh amiga_cli console  # the console runner
 desktop/run_check.sh                # the 68000 test corpus (regenerates the core)
-desktop\amiga.exe --rom <kickstart> [--adf disk.adf] [--df1 disk.adf] [--mute] [--shot w.png --seconds S]
-desktop\amiga_cli.exe --rom <kickstart> [--adf disk.adf] [--frames N] [--shot pic.png] [--stamp]
+desktop\amiga.exe --rom <kickstart> [--adf disk.adf] [--df1 disk.adf] [--mute] [--pal] [--shot w.png --seconds S]
+desktop\amiga_cli.exe --rom <kickstart> [--adf disk.adf] [--frames N] [--shot pic.png] [--stamp] [--pal]
 ```
 
 The window shows the picture (736 x 576, hires half-lines), the power and
 drive LEDs, and the panes CPU (registers, disassembly, the test corpus),
 Copper (the list at COP1LC), Blitter, Custom (registers, colours, sprites,
 audio), CIAs, Memory and Disks (Kickstart, DF0/DF1, a folder of .ADFs).
-F5 run/pause, F6 step, F7 frame, F8 reset, F9 warp, F11 full screen. The PC
+F5 run/pause, F6 step, F7 frame, F8 reset, F9 warp, F11 full screen; the
+NTSC/PAL button switches the standard (a power cycle). The PC
 keyboard is the Amiga's (Windows keys = Amiga keys, Insert = Help); the mouse
 over the picture is the Amiga's mouse; the numeric pad (8 4 6 2, 0 = fire) or
 a gamepad is the joystick in port 2.
@@ -174,20 +177,32 @@ Flash regions are set per board, clear of the PDP-11's packs and store:
 write the regions, upload, then talk to the board. Use `-Dump` for a chip RAM
 dump and `-Shot` for a picture.
 
-**Speed at 150 MHz (2026-10-24).** The whole program runs from SRAM. The
-machine is paced to PAL's 50 frames a second, as a real A500 is. "Unpaced"
-(the `f` command, `pico_machine.ps1 -Unpaced`) is how fast it can go. "Slowest
-frame" is the most time one frame's emulation took (PAL gives it 20,000 µs).
-"Late" counts frames over 20 ms.
+**Speed at 150 MHz (2026-10-25, NTSC).** The whole program runs from SRAM.
+The machine is paced to the standard's frame, as a real A500 is: 16,678 µs
+NTSC (59.96 Hz), 20,032 µs PAL. "Unpaced" (the `f` command,
+`pico_machine.ps1 -Unpaced`) is how fast it can go. "Slowest frame" is the most
+time one frame's emulation took; "late" counts frames over the standard's frame.
 
-| Board | Program | Paced | Unpaced | Slowest frame | Late in 30 s |
-|---|---|---|---|---|---|
-| Feather RP2350 (COM20), low 256 KB of chip RAM in SRAM | the PureMetal demo | **50.0** | 53.7 | 18.9 ms | 0 |
-| Feather RP2350 (COM20) | `tests/chiptest.rom` | **50.0** | 64.5 | 15.5 ms | 0 (1 at start-up, while it draws with the CPU) |
-| Pico Plus 2 W (COM16), all chip RAM in PSRAM, Bluetooth built in | the PureMetal demo | **50.0** | 52.6 | 19.5 ms | 0 |
+| Board | Program | Paced | Unpaced | Slowest frame | Late in 30 s | Busy: core 0 / core 1 |
+|---|---|---|---|---|---|---|
+| Feather RP2350 (COM20), low 256 KB of chip RAM in SRAM | the PureMetal demo | **59.9** | 64.2 | 15.7 ms | 0 | 93% / 13% |
+| Feather RP2350 (COM20) | `tests/chiptest.rom` | **59.9** | 78.3 | 12.8 ms | 1 (at start-up, while it draws with the CPU) | |
+| Pico Plus 2 W (COM16), all chip RAM in PSRAM, Bluetooth built in | the PureMetal demo | **59.9** | 62.6 | 16.3 ms | 0 | 95% / 13% |
 
-Before this work the demo ran at 25 fps (36 after the first round), and
-`chiptest` at 33.
+**Both cores work.** Core 0 runs the machine. For every line it writes Paula's
+record: the samples due, the volumes, and each channel's output at the line's
+start and at every byte that starts in it, with its colour clock. Core 1 turns
+the records into samples (and, with a speaker, streams them). It sleeps on
+`wfe` between records; a core 1 spinning on the ring's indexes took SRAM cycles
+from core 0. The status line gives each core's busy share. With NTSC's shorter
+frame, the single-core build left the Plus 2 W behind: 59.3 to 59.6 fps,
+slowest frame 17.2 ms, about 100 late frames in 120. The Feather's slowest
+frame was 16.6 ms, inside the 16.68 ms budget.
+
+Under PAL, before the NTSC and two-core work (2026-10-24), the demo ran
+paced at 50.0 on both boards. Unpaced it ran at 53.7 on the Feather and 52.6
+on the Plus 2 W, and `chiptest` at 64.5. Before any of this work the demo ran
+at 25 fps and `chiptest` at 33.
 
 **How each step was proven.** The emulated machine is deterministic, so a
 board must produce exactly what the PC produces. `tools/pico_demo_check.sh
@@ -225,9 +240,10 @@ corpus on the Pico 2 W is again 990,590 exact, 9,469 errata and 1 fail
 - **The blitter** (`src/blit_fast.pmi`): area blits without fill run in
   Thumb, with a constant-D store loop, an A-to-D copy and a general row
   loop. The demo's 2,682 words a frame went from 5.1 ms to 1.6 ms.
-- **Paula** (`src/audio_fast.pmi`): the line's stepping and mixing run in
-  Thumb, while `AudioNextByte` still does every fetch and interrupt; the
-  high byte of a word is taken inline. 3.75 ms to 2.85 ms.
+- **Paula** (`src/audio_fast.pmi`): the line's stepping runs in Thumb-2,
+  while `AudioNextByte` still does every fetch and interrupt; the high byte
+  of a word is taken inline. 3.75 ms to 2.85 ms. Since 2026-10-25 the mixing
+  is on core 1, and core 0 only writes the line's record.
 - **The copper:** a WAIT on its own line is computed instead of scanning
   colour clocks through a call each. Chip RAM reads are inline (`ChipWord`)
   on the copper, sprite and Paula paths. 3.2 ms to 2.5 ms.
@@ -277,7 +293,7 @@ instructions still on PureMetal handlers.
 compiler's Bluetooth A2DP library sends it to a speaker:
 
 - Core 0 connects; core 1 streams (`src/audio_bt.pmi`).
-- With a speaker connected, the machine is paced to 50 frames a second.
+- With a speaker connected, the machine is paced to the standard's frame.
 - The published wrapper has no speaker address and runs silent. Put the
   address in a private copy outside the repository, then run
   `tools/pico_machine.ps1 -Source <copy> -Speaker`. The script takes the
@@ -313,6 +329,20 @@ The pair from AROS's 2026-10-23 boot ISO goes where its residents say:
   window (version b8f4b11c34, built 2026-10-23), which then asks for the
   "AROS Live CD" volume. This A500 has no CD drive, and the floppy is meant to
   go with the ISO (`docs/aros_desktop_floppy.png`).
+
+On the Picos AROS runs as on the PC: its chip and slow RAM are byte for byte
+the PC's at frame 1500 (25 s of NTSC), on the Feather. Two faults stood in the
+way, both found by comparing a per-line state hash, then every instruction of
+the first differing line, between the board and the PC:
+
+- AROS writes FMODE ($DFF1FC), an AGA register. $1C0-$1FE were taken for
+  colours 32-63 and written past the 32 colours, onto the 68000's user stack
+  pointer on the Picos. An OCS machine now ignores them.
+- The desktop inserted DF0 write-protected, the Picos writable, and AROS keeps
+  /WPRO. Both now insert it write-protected.
+
+Under NTSC AROS opens a 200-line screen and reaches the same shell and
+requester.
 
 The images live in `C:\PMFBuild\roms-private\amiga\aros`, never in git.
 
