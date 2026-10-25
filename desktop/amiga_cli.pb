@@ -8,6 +8,16 @@
 ; sent on its serial port, the frame rate reached and where the CPU is, and
 ; saves the last picture.
 XIncludeFile "amiga_host.pbi"
+CompilerIf Defined(M68K_HIST, #PB_Constant)
+  ; --itrace F L: every instruction of line L of frame F (the --hist build only)
+  Procedure M68kTraceInstr()
+    Protected k.i, t.s = "I " + RSet(Hex(M68kGetPC() & $FFFFFF), 6, "0") + " " + RSet(Hex(PeekU(PIP)), 4, "0") + " sr " + RSet(Hex(M68kGetSR()), 4, "0")
+    For k = 0 To 15
+      t + " " + RSet(Hex(Reg(k) & $FFFFFFFF), 8, "0")
+    Next
+    PrintN(t)
+  EndProcedure
+CompilerEndIf
 
 OpenConsole()
 Define k.i, a.s, rom.s, ext.s, adf.s, shot.s, frames.i = 250, slowKb.i = 512, t0.i, t1.i, f.i
@@ -29,6 +39,15 @@ For k = 0 To CountProgramParameters() - 1
     k + 1 : shot = ProgramParameter(k)
   ElseIf a = "--slow"
     k + 1 : slowKb = Val(ProgramParameter(k))
+  ElseIf a = "--itrace"
+    CompilerIf Defined(M68K_HIST, #PB_Constant)
+      k + 1 : ItFrame = Val(ProgramParameter(k))
+      k + 1 : ItLine = Val(ProgramParameter(k))
+    CompilerEndIf
+  ElseIf a = "--trace"
+    ; --trace FROM TO: a line-by-line state hash for frames FROM..TO-1 (to compare with a board)
+    k + 1 : AmigaTraceFrom = Val(ProgramParameter(k))
+    k + 1 : AmigaTraceTo = Val(ProgramParameter(k))
   ElseIf a = "--stamp"
     HostSerialStamp = 1
   ElseIf a = "--dump-chip"

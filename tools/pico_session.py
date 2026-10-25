@@ -28,6 +28,8 @@ def main():
     ap.add_argument('--at', type=float, default=10)
     ap.add_argument('--keys', default='')
     ap.add_argument('--log', default='')
+    ap.add_argument('--itrace', default='', help='FRAME:LINE - every instruction of that line (an #AMIGA_PTRACE build)')
+    ap.add_argument('--trace', type=int, default=-1, help="the line trace (T lines) from this frame, 3 frames")
     ap.add_argument('--unpaced', action='store_true', help="send 'f' at the start: run as fast as the board can")
     ap.add_argument('--prof', type=float, default=0, help='ask for a profile (p) this many seconds in')
     ap.add_argument('--dump', default='', help='write chip RAM (big-endian) here when --dump-frame has run')
@@ -56,6 +58,7 @@ def main():
     dump_sent = False
     prof_sent = False
     unpaced_sent = False
+    trace_sent = False
     while time.time() - t0 < a.seconds:
         if a.shot and not asked and time.time() - t0 >= a.at:
             port.write(b's')
@@ -65,6 +68,12 @@ def main():
                 port.write(k.encode())
                 time.sleep(0.15)
             keys_sent = True
+        if a.trace >= 0 and not trace_sent and time.time() - t0 >= 0.4:
+            port.write(b't%04X' % a.trace)
+            if a.itrace:
+                f_, l_ = a.itrace.split(':')
+                port.write(b'j%04X%04X' % (int(f_), int(l_)))
+            trace_sent = True
         if a.unpaced and not unpaced_sent and time.time() - t0 >= 0.3:
             port.write(b'f')
             unpaced_sent = True

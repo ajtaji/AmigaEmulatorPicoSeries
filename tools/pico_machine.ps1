@@ -24,6 +24,8 @@ param(
     [switch]$Speaker,
     [int]$Prof = 0,
     [switch]$Unpaced,
+    [int]$Trace = -1,
+    [string]$ITrace = '',
     [int]$DumpFrame = 400,
     [string]$LeasePort = ''      # the lease's board name when the board shows up on another port (BOARDS.md names it)
 )
@@ -92,6 +94,8 @@ try {
     if ($Dump) { $args2 += @('--dump', $Dump, '--dump-frame', $DumpFrame) }
     if ($Prof) { $args2 += @('--prof', $Prof) }
     if ($Unpaced) { $args2 += @('--unpaced') }
+    if ($Trace -ge 0) { $args2 += @('--trace', $Trace) }
+    if ($ITrace) { $args2 += @('--itrace', $ITrace) }
     & py -3 (Join-Path $PSScriptRoot 'pico_session.py') @args2
 } finally {
     if ($spk) {

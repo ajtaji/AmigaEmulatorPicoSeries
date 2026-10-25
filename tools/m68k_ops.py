@@ -641,6 +641,8 @@ def emit_pm_tail_macro():
     e('      ble __ul_m68krun_done')
     e('      cmp r4, r11')
     e('      bhs __ul_m68krun_resync')
+    if G.PTRACE:
+        e('      bl m68ktracecheck')
     e('      ldrh r0, [r4]')
     e('      lsrs r0, r0, #6')
     e('      lsls r0, r0, #2')

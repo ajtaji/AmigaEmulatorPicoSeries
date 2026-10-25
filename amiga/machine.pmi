@@ -233,6 +233,13 @@ Procedure CustomWriteAt(reg.i, v.i, h.i)
   reg = reg & $1FE
   v = v & $FFFF
   Cust(reg >> 1) = v
+  If reg >= $1C0
+    ; $1C0-$1FE are ECS / AGA registers (BEAMCON0, FMODE...): an OCS machine has
+    ; none of them. They were once taken for colours - COLOR(32..63) written past
+    ; the 32-entry array, which on the Picos landed on the 68000's user stack
+    ; pointer (AROS writes FMODE = 0 while it boots)
+    ProcedureReturn
+  EndIf
   If reg >= #R_COLOR00
     DispCatchUp(h)
     Color((reg - #R_COLOR00) >> 1) = v & $FFF
@@ -577,6 +584,23 @@ Procedure AmigaReset()
   M68kReset()
 EndProcedure
 
+; One line's state for AmigaTrace(frame, line, pc, hash): the CPU's registers, PC
+; and SR, the interrupt and DMA registers, mixed into one number.
+Global AmigaTraceFrom.i = -1, AmigaTraceTo.i = -1
+Declare AmigaTrace(frame.i, line.i, pc.i, h.i)
+Procedure AmigaTraceLine()
+  Protected k.i, h.i
+  h = 0
+  For k = 0 To 15
+    h = ((h * 33) ! Reg(k)) & $7FFFFFFF
+  Next
+  h = ((h * 33) ! M68kGetSR()) & $7FFFFFFF
+  h = ((h * 33) ! IntReq) & $7FFFFFFF
+  h = ((h * 33) ! IntEna) & $7FFFFFFF
+  h = ((h * 33) ! DmaCon) & $7FFFFFFF
+  AmigaTrace(FrameCount, VPos, M68kGetPC() & $FFFFFF, h)
+EndProcedure
+
 ; One line: the CPU runs, interleaved with the copper and the blitter.
 Procedure AmigaRunLine()
   Protected lineEnd.i, t.i, used.i, p0.i, pt.i
@@ -653,6 +677,10 @@ Procedure AmigaRunLine()
     CopperVBlank()
   EndIf
   AmProfMark(7)
+  ; a trace window for comparing two platforms line by line (AmigaTraceFrom..To, frames)
+  If FrameCount >= AmigaTraceFrom And FrameCount < AmigaTraceTo
+    AmigaTraceLine()
+  EndIf
 EndProcedure
 
 ; Run until the end of the current frame.

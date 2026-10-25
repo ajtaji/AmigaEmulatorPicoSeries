@@ -112,6 +112,8 @@ Procedure CopperRunAsm()
     str r2, [r1]
     cmp r0, #384
     blt cpf_other
+    cmp r0, #448
+    bge cpf_other               ; $1C0 up: not a colour (CustomWriteAt ignores it on OCS)
     ; a colour register, as CustomWriteAt does it: Cust, catch the display up, Color
     ldr r1, =global_copir2
     ldr r1, [r1]

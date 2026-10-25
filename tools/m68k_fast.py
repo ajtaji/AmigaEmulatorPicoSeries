@@ -24,6 +24,7 @@ Every path is proven by the 68000 corpus on the board (state and cycles) and
 by the demo's chip RAM matching the PC at frame 400.
 """
 
+PTRACE = False       # set by gen_m68k (M68K_PTRACE=1): a trace call before every instruction
 FAST = {}            # handler name -> list of asm lines (without ASM / EndASM)
 USES = {}            # handler name -> the reserved Globals the block names
 
@@ -39,7 +40,7 @@ def dispatch():
     return ['cmp r6, #0',
             'ble __ul_m68krun_done',
             'cmp r4, r11',
-            'bhs __ul_m68krun_resync',
+            'bhs __ul_m68krun_resync'] + (['bl m68ktracecheck'] if PTRACE else []) + [
             'ldrh r0, [r4]',
             'lsrs r0, r0, #6',
             'lsls r0, r0, #2',

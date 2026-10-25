@@ -75,6 +75,17 @@ Procedure AmigaLineDone(y.i)
   EndIf
 EndProcedure
 
+CompilerIf Defined(M68K_HIST, #PB_Constant)
+  Global ItFrame.i = -1, ItLine.i = -1        ; amiga_cli --itrace
+CompilerEndIf
+Procedure AmigaTrace(frame.i, line.i, pc.i, h.i)
+  CompilerIf Defined(M68K_HIST, #PB_Constant)
+    ; the instruction trace (amiga_cli --itrace) runs during the line after this one
+    M68kTraceOn = Bool(frame = ItFrame And line + 1 = ItLine)
+  CompilerEndIf
+  PrintN("T " + Str(frame) + " " + Str(line) + " " + RSet(Hex(pc), 6, "0") + " " + RSet(Hex(h), 8, "0"))
+EndProcedure
+
 Global HostSerialStamp.i       ; 1: each serial line starts with the emulated time in ms
 Procedure AmigaSerial(byte.i)
   If HostSerialStamp And (HostSerial = "" Or Right(HostSerial, 1) = #LF$) And byte <> 10
