@@ -12,8 +12,10 @@
 ; F5 run/pause, F6 step one instruction, F7 step one frame, F8 reset, F9 warp, F11 full screen.
 EnableExplicit
 
+; The Neon Arcade Display Engine (https://github.com/ajtaji/Neon-Arcade-Dispay-Engine), cloned beside
+; this repository; /CONSTANT GL_ENGINE_DIR$=<folder>/ points elsewhere (desktop/build.sh passes NEON_ENGINE_DIR)
 CompilerIf Not Defined(GL_ENGINE_DIR$, #PB_Constant)
-  CompilerError "Pass the Neon Arcade Display Engine's folder: /CONSTANT GL_ENGINE_DIR$=<folder>/ (desktop/build.sh does)"
+  #GL_ENGINE_DIR$ = #PB_Compiler_FilePath + "../../Neon-Arcade-Dispay-Engine/"
 CompilerEndIf
 XIncludeFile #GL_ENGINE_DIR$ + "GlTypes.pbi"
 XIncludeFile #GL_ENGINE_DIR$ + "GlUtilities.pbi"

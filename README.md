@@ -240,14 +240,33 @@ four-channel tune. It builds into a bootable `.adf` and a stand-alone 256 KB
 
 ## The desktop program
 
-Windows, x64. You need [PureBasic](https://www.purebasic.com/) 6 (C back end)
-and the [Neon Arcade Display Engine](https://github.com/ajtaji/Neon-Arcade-Dispay-Engine)
-checked out beside this repository, or named by `NEON_ENGINE_DIR`
-(`tools/env.sh`).
+### Building the desktop version
+
+Windows, x64, with [PureBasic](https://www.purebasic.com/) 6.41 (x64, C back
+end). The window program draws with the
+[Neon Arcade Display Engine](https://github.com/ajtaji/Neon-Arcade-Dispay-Engine);
+clone it beside this repository:
 
 ```
-desktop/build.sh amiga                # the window program -> desktop/amiga.exe
-desktop/build.sh amiga_cli console    # the console runner -> desktop/amiga_cli.exe
+git clone https://github.com/ajtaji/AmigaEmulatorPicoSeries.git
+git clone https://github.com/ajtaji/Neon-Arcade-Dispay-Engine.git
+cd AmigaEmulatorPicoSeries
+"C:\Program Files\PureBasic\Compilers\pbcompilerc.exe" desktop\amiga.pb /OPTIMIZER /THREAD /DPIAWARE /EXE desktop\amiga.exe
+"C:\Program Files\PureBasic\Compilers\pbcompilerc.exe" desktop\amiga_cli.pb /CONSOLE /OPTIMIZER /THREAD /EXE desktop\amiga_cli.exe
+desktop\amiga.exe --adf demo\PureMetalDemo.adf
+```
+
+With no Kickstart the window program uses its built-in boot ROM, which boots
+the demo's floppy; a Kickstart or disk can also be chosen in its Disks pane.
+The demo's `.adf` and `.rom` are in the repository, built by PureMetal Forge
+from `demo/demo.amiga` (see [demo/README.md](demo/README.md)). To use an engine somewhere else, add
+`/CONSTANT GL_ENGINE_DIR$=<its folder>/` (with the trailing slash). From Git
+Bash, `desktop/build.sh amiga` and `desktop/build.sh amiga_cli console` do the
+same, taking the engine's folder from `NEON_ENGINE_DIR` (`tools/env.sh`).
+
+### Running it
+
+```
 desktop\amiga.exe --rom <kickstart> [--ext <extended rom>] [--adf disk.adf] [--df1 disk.adf] [--pal] [--mute]
 desktop\amiga_cli.exe --rom <kickstart> [--adf disk.adf] [--frames N] [--shot pic.png] [--pal]
 ```

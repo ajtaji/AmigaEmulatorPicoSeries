@@ -28,8 +28,8 @@ every line's MOVE in one blit; two copper lists are kept, and the one on the scr
 | `PureMetalDemo.rom` | the same program as a 256 KB ROM image (at $FC0000): it starts the demo with no disk and no Kickstart - use it where a Kickstart file goes |
 | `PureMetalDemo.bin` | the program image itself, loaded at $40000 |
 
-The three `PureMetalDemo` files are what the build below writes; the repository ignores `.adf`, `.rom`
-and `.bin` files, so build them before running.
+The three `PureMetalDemo` files are what the build below writes. The `.adf` and `.rom` are in the
+repository; the `.bin` is not, so build it if you want the bare image.
 
 ## Building
 
