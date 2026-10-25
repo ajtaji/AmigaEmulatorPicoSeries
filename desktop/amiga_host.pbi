@@ -18,6 +18,7 @@ CompilerEndIf
 #AM_PROFILE = 0
 #AM_BLIT_ASM = 0
 #AM_AUDIO_ASM = 0
+#AM_MIX_CORE1 = 0                ; Paula's records are mixed at once (amiga/paula.pmi)
 #AM_COPPER_ASM = 0
 CompilerIf Defined(M68K_HIST, #PB_Constant)
   XIncludeFile "m68k_core_hist.pbi"   ; tools/gen_m68k.py --hist: counts opcodes

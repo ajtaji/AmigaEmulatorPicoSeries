@@ -116,20 +116,5 @@ ProcedureRAM AudioPoll()
   EndIf
 EndProcedure
 
+; core 1 calls AudioPoll while Core1Go is set (Core1Main, src/amiga_pico.pmi)
 Global Core1Go.i
-
-ProcedureRAM Core1Main()
-  Repeat
-    If PeekL(@Core1Go)
-      AudioPoll()
-    EndIf
-  ForEver
-EndProcedure
-
-Procedure.i LaunchCore1()
-  McCore1ReleaseHold()
-  If McLaunchCore1() = 6
-    ProcedureReturn 1
-  EndIf
-  ProcedureReturn 0
-EndProcedure

@@ -8,7 +8,7 @@
 EnableRunFromRAM
 #CLOCK_KHZ = 150000
 #M68K_ASM_TAIL = 1
-#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula (src/*_fast.pmi)
+#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula's record (src/*_fast.pmi)
 #AM_COPPER_ASM = 1
 #AM_AUDIO_ASM = 1
 #AMIGA_PTRACE = 0             ; 1: the instruction trace ('j'), with an M68K_PTRACE=1 core

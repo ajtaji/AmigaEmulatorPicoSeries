@@ -46,6 +46,9 @@ Global Dim MfmLongs.l(300)
 ; ---------------------------------------------------------------- audio
 Procedure AudioReset()
   Protected c.i
+  CompilerIf #AM_MIX_CORE1 = 1
+    AudioMixDrain()           ; core 1 writes AudWr while records wait
+  CompilerEndIf
   For c = 0 To 3
     AudOn(c) = 0
     AudOut(c) = 0
@@ -175,67 +178,66 @@ Procedure.i AudioVol(c.i)
   ProcedureReturn v
 EndProcedure
 
-; One line of audio: the samples that fall in it. This runs after the line's CPU
-; and copper work, so no register changes while it runs. Each playing channel
-; is stepped through the whole line once, its output kept at every sample
-; point (AudSmp); then the samples are mixed. Channels never touch each
-; other's state - a fetched byte only reads chip RAM and sets its own interrupt
-; bit - so stepping them one after the other gives what stepping them together
-; gives.
+; One line of audio, in two halves. AudioLine, after the line's CPU and copper work
+; (no register changes while it runs), steps each playing channel through the
+; line - the DMA fetches, the reloads and the interrupts the CPU sees, all on
+; time - and writes the line's record: how many samples fall in it, the four
+; volumes, and each channel's output at the line's start and every change in it,
+; with its colour clock. AudioMix turns a record into samples in AudRing: sample
+; k is taken at colour clock chunk * (k + 1) (the last at the line's end) and
+; holds the last change at or before it. Channels never touch each other's state
+; - a fetched byte only reads chip RAM and sets its own interrupt bit - so
+; stepping them one after the other gives what stepping them together gives.
+; On the desktop AudioMix follows at once; on the RP2350 (#AM_MIX_CORE1 = 1, set
+; by the platform) core 1 runs it from the ring of records, and the samples are
+; the same: they depend on nothing but the record.
+#AUD_REC = 64                      ; records in the ring (lines), a power of two
+#AUD_REC_W = 29                    ; n, 4 volumes, 4 x (start, changes, 2 x (clock, value))
+Global Dim AudRec.i(#AUD_REC * #AUD_REC_W)
+Global AudRecWr.i, AudRecRd.i      ; each written by one side only: AudioLine / AudioMix's caller
 Global Dim AudSmp.i(4 * 8)
-CompilerIf #AM_AUDIO_ASM = 1
-  ; the platform's own line of mono audio (the RP2350: src/audio_fast.pmi)
-  Declare AudioLineFast(n.i)
+CompilerIf #AM_MIX_CORE1 = 1
+  ; the platform's (src/amiga_pico.pmi): a barrier then AudRecWr + 1, and a wait for core 1
+  ; to catch up with every record
+  Declare AudioRecPublish()
+  Declare AudioMixDrain()
 CompilerEndIf
-Procedure AudioLine()
-  Protected n.i, k.i, c.i, l.i, r.i, chunk.i, last.i, act.i, per.i, cnt.i, v0.i, v1.i, v2.i, v3.i
-  AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
-  n = AudAcc / AmCckHz
-  AudAcc = AudAcc - n * AmCckHz
-  If n = 0
-    For c = 0 To 3
-      If AudOn(c) Or AudCpu(c)
-        AudioStep1(c, #AM_CCK_LINE)
-      EndIf
-    Next
-    ProcedureReturn
-  EndIf
-  CompilerIf #AM_AUDIO_ASM = 1
-    AudioLineFast(n)
-    ProcedureReturn
-  CompilerEndIf
+CompilerIf #AM_AUDIO_ASM = 1
+  ; the platform's record of the four channels (the RP2350: src/audio_fast.pmi)
+  Declare AudioRecFast(b.i)
+CompilerEndIf
+
+; Record b (an index into AudRec) into samples.
+Procedure AudioMix(b.i)
+  Protected n.i, k.i, c.i, l.i, r.i, chunk.i, pos.i, cur.i, e.i, i.i, q.i, v0.i, v1.i, v2.i, v3.i
+  n = AudRec(b)
   chunk = #AM_CCK_LINE / n
-  last = #AM_CCK_LINE - chunk * (n - 1)
   For c = 0 To 3
-    If AudOn(c) Or AudCpu(c)
-      per = Cust((#R_AUD0LCH >> 1) + c * 8 + 3)
-      If per < 124
-        per = 124
+    q = b + 5 + c * 6
+    cur = AudRec(q)
+    e = AudRec(q + 1)
+    i = 0
+    pos = 0
+    For k = 0 To n - 1
+      If k = n - 1
+        pos = #AM_CCK_LINE
+      Else
+        pos = pos + chunk
       EndIf
-      cnt = AudCnt(c)
-      For k = 0 To n - 1
-        If k = n - 1
-          cnt = cnt - last
-        Else
-          cnt = cnt - chunk
+      While i < e
+        If AudRec(q + 2 + i * 2) > pos
+          Break
         EndIf
-        While cnt <= 0
-          cnt = cnt + per
-          AudioNextByte(c)
-        Wend
-        AudSmp(c * 8 + k) = AudOut(c)
-      Next
-      AudCnt(c) = cnt
-    Else
-      For k = 0 To n - 1
-        AudSmp(c * 8 + k) = AudOut(c)
-      Next
-    EndIf
+        cur = AudRec(q + 3 + i * 2)
+        i = i + 1
+      Wend
+      AudSmp(c * 8 + k) = cur
+    Next
   Next
-  v0 = AudioVol(0)
-  v1 = AudioVol(1)
-  v2 = AudioVol(2)
-  v3 = AudioVol(3)
+  v0 = AudRec(b + 1)
+  v1 = AudRec(b + 2)
+  v2 = AudRec(b + 3)
+  v3 = AudRec(b + 4)
   For k = 0 To n - 1
     l = AudSmp(k) * v0 + AudSmp(24 + k) * v3
     r = AudSmp(8 + k) * v1 + AudSmp(16 + k) * v2
@@ -247,6 +249,64 @@ Procedure AudioLine()
     CompilerEndIf
     AudWr = AudWr + 1
   Next
+EndProcedure
+
+Procedure AudioLine()
+  Protected n.i, c.i, b.i, q.i, t.i, e.i, per.i
+  AudAcc = AudAcc + #AUD_RATE * #AM_CCK_LINE
+  n = AudAcc / AmCckHz
+  AudAcc = AudAcc - n * AmCckHz
+  If n = 0
+    For c = 0 To 3
+      If AudOn(c) Or AudCpu(c)
+        AudioStep1(c, #AM_CCK_LINE)
+      EndIf
+    Next
+    ProcedureReturn
+  EndIf
+  CompilerIf #AM_MIX_CORE1 = 1
+    ; core 1 a whole ring behind: wait for a free record
+    While AudRecWr - PeekL(@AudRecRd) >= #AUD_REC
+    Wend
+  CompilerEndIf
+  b = (AudRecWr & (#AUD_REC - 1)) * #AUD_REC_W
+  AudRec(b) = n
+  CompilerIf #AM_AUDIO_ASM = 1
+    AudioRecFast(b)
+    AudioRecPublish()
+    ProcedureReturn
+  CompilerEndIf
+  For c = 0 To 3
+    AudRec(b + 1 + c) = AudioVol(c)
+    q = b + 5 + c * 6
+    AudRec(q) = AudOut(c)
+    e = 0
+    If AudOn(c) Or AudCpu(c)
+      per = Cust((#R_AUD0LCH >> 1) + c * 8 + 3)
+      If per < 124
+        per = 124
+      EndIf
+      ; the bytes that start in this line, at clocks AudCnt, + per, ... up to the line's end: at
+      ; most two, as AudCnt >= 0 and per >= 124
+      t = AudCnt(c)
+      While t <= #AM_CCK_LINE
+        AudioNextByte(c)
+        AudRec(q + 2 + e * 2) = t
+        AudRec(q + 3 + e * 2) = AudOut(c)
+        e = e + 1
+        t = t + per
+      Wend
+      AudCnt(c) = t - #AM_CCK_LINE
+    EndIf
+    AudRec(q + 1) = e
+  Next
+  CompilerIf #AM_MIX_CORE1 = 1
+    AudioRecPublish()
+  CompilerElse
+    AudioMix(b)
+    AudRecWr = AudRecWr + 1
+    AudRecRd = AudRecWr
+  CompilerEndIf
 EndProcedure
 
 ; ---------------------------------------------------------------- MFM tracks

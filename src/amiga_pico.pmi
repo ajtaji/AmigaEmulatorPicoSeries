@@ -34,8 +34,11 @@ FlashRegion "kickext", #EXT_OFFSET, $80000, "raw"
 #AUD_RING = 4096
 #AUD_RATE = 48000
 #AUD_MONO = 1
-; #AM_BLIT_ASM, #AM_COPPER_ASM, #AM_AUDIO_ASM (the Thumb blitter, copper and Paula of
-; blit_fast.pmi, copper_fast.pmi, audio_fast.pmi) come from the board's wrapper.
+; Core 1 mixes Paula: core 0 writes each line's record (amiga/paula.pmi), core 1 turns
+; the records into samples in the ring - and, with a speaker, streams them (audio_bt.pmi).
+#AM_MIX_CORE1 = 1
+; #AM_BLIT_ASM, #AM_COPPER_ASM, #AM_AUDIO_ASM (the Thumb blitter, copper and Paula's
+; record of blit_fast.pmi, copper_fast.pmi, audio_fast.pmi) come from the board's wrapper.
 ; where the time goes: #AM_PROFILE = 1 in the wrapper (src/amiga_profile.feather2350) times each
 ; part of the line with the M33's cycle counter (DWT CYCCNT, enabled in Main); 'p' prints it.
 ; It costs about 1 ms a frame, so the normal builds leave it out.
@@ -56,9 +59,80 @@ XIncludeFile "../amiga/input.pmi"
 XIncludeFile "../amiga/machine.pmi"
 XIncludeFile "copper_fast.pmi"
 XIncludeFile "io.pmi"
+
 CompilerIf #AMIGA_AUDIO = 1
   XIncludeFile "audio_bt.pmi"
 CompilerEndIf
+
+; ---------------------------------------------------------------- core 1
+; Core 1 mixes the records core 0 writes (AudioLine). Each side writes one index: core 0
+; AudRecWr, core 1 AudRecRd; a barrier orders a record's words before the index that
+; publishes them, and the index before the next reuse of its slot. Without core 1 (its
+; launch failed) core 0 mixes each record itself as it publishes it.
+Global Core1Up.i, Core1BusyUs.i
+
+Procedure McDmb()
+  ASM
+    dmb
+  EndASM
+EndProcedure
+
+; Every record waiting, into samples (core 1; core 0 when core 1 is not up).
+Procedure AudioMixPending()
+  Protected rd.i
+  rd = PeekL(@AudRecRd)
+  While rd <> PeekL(@AudRecWr)
+    McDmb()
+    AudioMix((rd & (#AUD_REC - 1)) * #AUD_REC_W)
+    rd = rd + 1
+    McDmb()
+    PokeL(@AudRecRd, rd)
+  Wend
+EndProcedure
+
+; a record ready: publish it and wake core 1 (sev ends its wfe)
+Procedure AudioRecPublish()
+  McDmb()
+  PokeL(@AudRecWr, AudRecWr + 1)
+  ASM
+    sev
+  EndASM
+  If Core1Up = 0
+    AudioMixPending()
+  EndIf
+EndProcedure
+
+; Until core 1 has mixed every record (before core 0 reads or resets the ring).
+Procedure AudioMixDrain()
+  While PeekL(@AudRecRd) <> PeekL(@AudRecWr)
+  Wend
+  McDmb()
+EndProcedure
+
+; Idle, core 1 sleeps (wfe) rather than spin on the indexes: a spinning core 1 takes SRAM
+; cycles from core 0. Core 0's sev for each record wakes it - about every 64 us, so the radio's
+; polls (every 150 - 700 us) still come in time.
+ProcedureRAM Core1Main()
+  Protected t.i
+  Repeat
+    If PeekL(@AudRecRd) <> PeekL(@AudRecWr)
+      t = Micros()
+      AudioMixPending()
+      PokeL(@Core1BusyUs, Core1BusyUs + Micros() - t)
+    Else
+      ASM
+        wfe
+      EndASM
+    EndIf
+    CompilerIf #AMIGA_AUDIO = 1
+      If PeekL(@Core1Go)
+        t = Micros()
+        AudioPoll()
+        PokeL(@Core1BusyUs, Core1BusyUs + Micros() - t)
+      EndIf
+    CompilerEndIf
+  ForEver
+EndProcedure
 
 Global Unpaced.i                  ; 'f': run as fast as the board can (for measuring headroom)
 Global ShotWant.i, ShotNow.i, FrameSum.i, LastFrameSum.i, DumpAt.i, ProfFrom.i = -1, SumEvery.i
@@ -197,7 +271,8 @@ Procedure DumpChip()
   Next
   Say("SEND")
   Eol()
-  ; Paula's ring as it stands (mono samples, oldest first after AudWr)
+  ; Paula's ring as it stands (mono samples, oldest first after AudWr), every record mixed
+  AudioMixDrain()
   Say("AUD wr=")
   Num(AudWr)
   Eol()
@@ -323,7 +398,7 @@ Procedure Commands()
 EndProcedure
 
 Procedure Main()
-  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i, fs.i, fw.i, fmax.i, late.i, lateAll.i, fus.i
+  Protected n.i, k.i, t0.i, t1.i, frames.i, cyc0.i, us.i, w.i, pace.i, fs.i, fw.i, fmax.i, late.i, lateAll.i, fus.i, work0.i, busy1.i
   SafetyBoot()
   ClockInitKhz(#CLOCK_KHZ)
   PokeL($E000EDFC, PeekL($E000EDFC) | $01000000)    ; DEMCR.TRCENA
@@ -402,18 +477,32 @@ Procedure Main()
   Say(" ssp=")
   Hex(M68kGetSSP(), 8)
   Eol()
+  ; core 1: Paula's mixing (and the speaker, if one connected)
   CompilerIf #AMIGA_AUDIO = 1
     If AudioBegin(?Speaker)
-      If LaunchCore1()
-        PokeL(@Core1Go, 1)
-        Say("Bluetooth: playing")
-      Else
-        Say("Bluetooth: core 1 did not start; running silent")
-        AudioRunning = 0
-      EndIf
-      Eol()
+      PokeL(@Core1Go, 1)
     EndIf
   CompilerEndIf
+  McCore1ReleaseHold()
+  If McLaunchCore1() = 6
+    Core1Up = 1
+    Say("core 1: mixing Paula")
+    CompilerIf #AMIGA_AUDIO = 1
+      If Core1Go
+        Say(", Bluetooth playing")
+      EndIf
+    CompilerEndIf
+  Else
+    Say("core 1 did not start: core 0 mixes Paula")
+    CompilerIf #AMIGA_AUDIO = 1
+      If Core1Go
+        Say("; Bluetooth silent")
+        Core1Go = 0
+        AudioRunning = 0
+      EndIf
+    CompilerEndIf
+  EndIf
+  Eol()
   Say("READY")
   Eol()
   t0 = Micros()
@@ -434,6 +523,7 @@ Procedure Main()
     ; the frame's own work, in microseconds: NTSC gives it 16,678, PAL 20,032
     fw = Micros() - fs
     fus = AmigaFrameUs()
+    work0 = work0 + fw
     If fw > fmax
       fmax = fw
     EndIf
@@ -504,6 +594,13 @@ Procedure Main()
       Num(late)
       Say(" late total=")
       Num(lateAll)
+      ; each core's share of the time: core 0 the machine's frames, core 1 the mixing (and radio)
+      Say(" core0 busy %=")
+      Num(work0 * 100 / us)
+      Say(" core1 busy %=")
+      Num((PeekL(@Core1BusyUs) - busy1) * 100 / us)
+      busy1 = PeekL(@Core1BusyUs)
+      work0 = 0
       fmax = 0
       late = 0
       CompilerIf #AMIGA_AUDIO = 1

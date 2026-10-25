@@ -2,7 +2,7 @@
 EnableRunFromRAM
 #CLOCK_KHZ = 150000
 #M68K_ASM_TAIL = 1
-#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula (src/*_fast.pmi)
+#AM_BLIT_ASM = 1               ; the Thumb blitter, copper and Paula's record (src/*_fast.pmi)
 #AM_COPPER_ASM = 1
 #AM_AUDIO_ASM = 1
 #AMIGA_PTRACE = 0             ; 1: the instruction trace ('j'), with an M68K_PTRACE=1 core
@@ -10,6 +10,7 @@ EnableRunFromRAM
 #AM_PROFILE = 0                ; 1: the time profile ('p'), see src/amiga_profile.feather2350
 #CHIP_SRAM_KB = 256            ; the low chip RAM in SRAM (the rest in PSRAM)
 #AMIGA_AUDIO = 0              ; no radio on this board
+XIncludeFile "RP2350/Lib/multicore_smp.pico2"   ; core 1 mixes Paula (src/amiga_pico.pmi)
 XIncludeFile "RP2350/Lib/clocks.pico2"
 XIncludeFile "RP2350/Lib/timer.pico2"
 XIncludeFile "RP2350/Lib/uart.pico2"
