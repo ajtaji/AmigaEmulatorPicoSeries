@@ -23,6 +23,12 @@ XIncludeFile #GL_ENGINE_DIR$ + "GlMath.pbi"
 XIncludeFile #GL_ENGINE_DIR$ + "GlSpriteFunctions.pbi"
 XIncludeFile #GL_ENGINE_DIR$ + "GlUI.pbi"
 XIncludeFile #GL_ENGINE_DIR$ + "GlUIChrome.pbi"
+; this frame is not drawn through DrawRetroCRT: with the CRT on (the engine's default) every pointer
+; position is bent by its barrel curve - up to 28 px at 125%, worst at the top and bottom of the window
+UI_UseCRT = #False
+CompilerIf Defined(PLANT_CRT, #PB_Constant)
+  UI_UseCRT = #True   ; only to see --pointer-test fail
+CompilerEndIf
 
 XIncludeFile "amiga_host.pbi"
 XIncludeFile "amiga_sound.pbi"
@@ -31,7 +37,7 @@ Declare ViewRunTests()
 XIncludeFile "amiga_view.pbi"
 
 Global Win.i, Gl.i, PhysW.i, PhysH.i
-Global Quit.i, Paused.i, Warp.i
+Global Quit.i, Paused.i, Warp.i, PowerCount.i
 Global KeyCode.i, KeyChar.i, Wheel.i
 Global Dim KeyDown.i(256)
 Global Dim KeyMap.i(256)
@@ -104,11 +110,18 @@ Procedure KeyMapInit()
 EndProcedure
 
 ; ---------------------------------------------------------------- fonts and window size
+; The chrome's fonts at their logical size times Neon_UIScale (GlUIChrome.pbi, hosting section 5a), rebuilt -
+; the old ones freed - when the scale changes
+Global FontsBuilt.i
 Procedure BuildFonts()
-  *Neon_FontUI = Neon_CreateFontPx("Segoe UI", Round(14 * UiScale, #PB_Round_Nearest))
-  *Neon_FontSmall = Neon_CreateFontPx("Segoe UI", Round(12 * UiScale, #PB_Round_Nearest))
-  *Neon_FontBold = Neon_CreateFontPx("Segoe UI", Round(15 * UiScale, #PB_Round_Nearest), #PB_Font_Bold)
-  *Neon_FontMono = Neon_CreateFontPx("Consolas", Round(13 * UiScale, #PB_Round_Nearest))
+  If FontsBuilt
+    FreeGLFont(*Neon_FontUI) : FreeGLFont(*Neon_FontSmall) : FreeGLFont(*Neon_FontBold) : FreeGLFont(*Neon_FontMono)
+  EndIf
+  FontsBuilt = 1
+  *Neon_FontUI = Neon_CreateFontPx("Segoe UI", Round(Neon_S(14), #PB_Round_Nearest))
+  *Neon_FontSmall = Neon_CreateFontPx("Segoe UI", Round(Neon_S(12), #PB_Round_Nearest))
+  *Neon_FontBold = Neon_CreateFontPx("Segoe UI", Round(Neon_S(15), #PB_Round_Nearest), #PB_Font_Bold)
+  *Neon_FontMono = Neon_CreateFontPx("Consolas", Round(Neon_S(13), #PB_Round_Nearest))
   GLFontSetSnapToPixel(*Neon_FontUI, #True) : GLFontSetSnapToPixel(*Neon_FontSmall, #True)
   GLFontSetSnapToPixel(*Neon_FontBold, #True) : GLFontSetSnapToPixel(*Neon_FontMono, #True)
 EndProcedure
@@ -128,6 +141,13 @@ Procedure MeasureWindow()
   GL_ViewportX = 0 : GL_ViewportY = 0 : GL_ViewportW = PhysW : GL_ViewportH = PhysH
   Util_BaseWidth = PhysW : Util_BaseHeight = PhysH
   Util_WinWidth = WindowWidth(Win, #PB_Window_InnerCoordinate) : Util_WinHeight = WindowHeight(Win, #PB_Window_InnerCoordinate)
+  ; the display scale s = physical / logical client width, MEASURED (GlUIChrome.pbi section 5a; not
+  ; DesktopResolutionX(), which can read 1.0 under per-monitor awareness): the chrome (Neon_UIScale) and the
+  ; fonts follow it, and change with it on a monitor with another scale
+  Protected sc.f = 1.0
+  If Util_WinWidth > 0 : sc = PhysW / Util_WinWidth : EndIf
+  If sc <= 0 : sc = 1.0 : EndIf
+  If FontsBuilt = 0 Or Abs(sc - Neon_UIScale) > 0.005 : Neon_UIScale = sc : BuildFonts() : EndIf
 EndProcedure
 
 ; ---------------------------------------------------------------- the machine
@@ -137,6 +157,7 @@ Procedure MachinePower()
     HostUseBootRom()
   EndIf
   AmigaReset()
+  PowerCount + 1
   ; a real frame's length for the standard (NTSC 59.96 Hz, PAL 49.92), and a clean picture: an NTSC
   ; frame leaves the rows below its last line alone
   EmuFrameUs = (#AM_CCK_LINE * (AmLinesShort + 1)) * 1000000.0 / AmCckHz
@@ -297,9 +318,119 @@ Procedure MouseToAmiga(mx.i, my.i, left.i, right.i)
   MouseInPic = inside
 EndProcedure
 
+; ---------------------------------------------------------------- --pointer-test
+; The real pointer is shared with everyone on this desktop, so it is never moved: the chrome is driven with
+; synthetic positions in the units WindowMouseX/Y give a DPI-aware window (physical pixels), through the same
+; Neon_ChromeBeginFrame call. For every control four points: just inside its top-left and its bottom-right
+; corner (a press must land on it), just right of it and just below it (a press must not). Every frame
+; Neon_MX / Neon_MY must read the point back unbent. Controls at the top of the window (the toolbar, the tab
+; strip), in the middle (the picture, which takes the Amiga's mouse; the panes' buttons) and at the bottom
+; (the disk list's last row).
+Global PtFile$, PtLog$, PtX.f, PtY.f, PtDown.i, PtCase.i, PtPoint.i, PtFrame.i, PtFails.i, PtPoints.i, PtWorst.f, PtDone.i
+Global PtCount.i, Dim PtName$(40)
+
+Procedure PtInit()
+  Protected n$ = "Kickstart|Insert DF0|Pause|Step|Frame|Reset|Warp|Standard|Sound|tab 0|tab 3|tab 6|screen|Run tests|cop back|mem <<|mem ROM|disks Kickstart|disks Eject DF1|Choose folder|list first row|list last row"
+  Protected i.i
+  PtCount = CountString(n$, "|") + 1
+  For i = 0 To PtCount - 1 : PtName$(i) = StringField(n$, i + 1, "|") : Next
+  ClearList(ViewAdfFiles())
+  For i = 1 To 400 : AddElement(ViewAdfFiles()) : ViewAdfFiles() = "disk " + Str(i) + ".adf" : Next   ; longer than its pane
+  ViewAdfTop = 0
+  Paused = 1                                     ; the machine stands still while it is measured
+EndProcedure
+
+; The page a control is drawn on.
+Procedure.i PtPage(name$)
+  If name$ = "Run tests" : ProcedureReturn 0 : EndIf
+  If Left(name$, 4) = "cop " : ProcedureReturn 1 : EndIf
+  If Left(name$, 4) = "mem " : ProcedureReturn 5 : EndIf
+  If Left(name$, 6) = "disks " Or name$ = "Choose folder" Or Left(name$, 5) = "list " : ProcedureReturn 6 : EndIf
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i PtRect(name$, *r.CtlRect)
+  Protected *row.Neon_TabRowLayout, i.i
+  If Left(name$, 4) = "tab "
+    If FindMapElement(Neon_TabLayout(), "1") = 0 : ProcedureReturn 0 : EndIf
+    *row = @Neon_TabLayout() : i = Val(Mid(name$, 5))
+    If i >= *row\Count : ProcedureReturn 0 : EndIf
+    ; the row's last pixel is the strip's underline, not a tab
+    *r\x = *row\X(i) : *r\w = *row\W(i) : *r\y = *row\Y : *r\h = *row\H - 1
+    ProcedureReturn 1
+  EndIf
+  If FindMapElement(Ctl(), name$) = 0 : ProcedureReturn 0 : EndIf
+  CopyStructure(@Ctl(), *r, CtlRect)
+  ProcedureReturn 1
+EndProcedure
+
+; One step, after each frame is drawn.
+Procedure PtStep()
+  Protected r.CtlRect, name$, inside.i, got$, ok.i, f.i
+  If PtCase >= PtCount
+    PtLog$ + "pointer-test: " + Str(PtPoints) + " points on " + Str(PtCount) + " controls, " + Str(PtFails) + " failures, scale " +
+             StrF(Neon_UIScale, 2) + ", canvas " + Str(Util_BaseWidth) + "x" + Str(Util_BaseHeight) + " physical, window " +
+             Str(Util_WinWidth) + "x" + Str(Util_WinHeight) + " logical, UI_UseCRT " + Str(UI_UseCRT) +
+             ", worst pointer read-back error " + StrF(PtWorst, 2) + " px" + #LF$
+    f = CreateFile(#PB_Any, PtFile$)
+    If f : WriteString(f, PtLog$) : CloseFile(f) : EndIf
+    PtDone = 1
+    ProcedureReturn
+  EndIf
+  name$ = PtName$(PtCase)
+  If PtFrame > 1
+    If Abs(Neon_MX - PtX) > PtWorst : PtWorst = Abs(Neon_MX - PtX) : EndIf
+    If Abs(Neon_MY - PtY) > PtWorst : PtWorst = Abs(Neon_MY - PtY) : EndIf
+  EndIf
+  PtFrame + 1
+  Select PtFrame
+    Case 1                                       ; the page that shows the control, the pointer away
+      ActiveTab = PtPage(name$)
+      PtX = 1 : PtY = 1 : PtDown = 0
+    Case 2                                       ; drawn: go to the point
+      If PtRect(name$, @r) = 0
+        PtLog$ + "FAIL " + name$ + ": not drawn" + #LF$ : PtFails + 1
+        PtFrame = 0 : PtPoint = 0 : PtCase + 1 : ProcedureReturn
+      EndIf
+      Select PtPoint
+        Case 0 : PtX = r\x + 2 : PtY = r\y + 2
+        Case 1 : PtX = r\x + r\w - 2 : PtY = r\y + r\h - 2
+        Case 2 : PtX = r\x + r\w + 2 : PtY = r\y + r\h - 2
+        Case 3 : PtX = r\x + r\w - 2 : PtY = r\y + r\h + 2
+      EndSelect
+      PtClicked$ = ""
+      If Left(name$, 4) = "tab " : ActiveTab = 99 : EndIf   ; no tab selected: a press shows as the new value
+    Case 3 : PtDown = 1                          ; press
+    Case 4 : PtDown = 0                          ; release
+    Case 6                                       ; what the press did
+      PtRect(name$, @r)
+      inside = Bool(PtPoint < 2)
+      If Left(name$, 4) = "tab "
+        got$ = "tab " + Str(ActiveTab)
+        ok = Bool((got$ = name$) = inside)
+      ElseIf name$ = "screen"
+        ; the picture takes the Amiga's mouse: is the pointer in it?
+        got$ = StringField("not in the picture|in the picture", 1 + MouseInPic, "|")
+        ok = Bool(MouseInPic = inside)
+      Else
+        got$ = PtClicked$
+        If got$ = "" : got$ = "nothing" : EndIf
+        ok = Bool((PtClicked$ = name$) = inside)
+      EndIf
+      PtPoints + 1
+      PtLog$ + StringField("FAIL|ok", 1 + ok, "|") + "  " + LSet(name$, 16) + " rect (" + StrF(r\x, 1) + "," + StrF(r\y, 1) + " " +
+               StrF(r\w, 1) + "x" + StrF(r\h, 1) + ")  point (" + StrF(PtX, 0) + "," + StrF(PtY, 0) + ") " +
+               StringField("outside|inside", 1 + inside, "|") + "  read back (" + StrF(Neon_MX, 1) + "," + StrF(Neon_MY, 1) + ")  press -> " + got$ + #LF$
+      If ok = 0 : PtFails + 1 : EndIf
+      If Left(name$, 4) = "tab " : ActiveTab = 0 : EndIf
+      PtPoint + 1 : PtFrame = 0
+      If PtPoint = 4 : PtPoint = 0 : PtCase + 1 : EndIf
+  EndSelect
+EndProcedure
+
 ; ---------------------------------------------------------------- one frame of the window
 Procedure Tick()
-  Protected now.q, dt.f, mx.i, my.i, down.b, rdown.b, s.f, toolH.f, x.f, gw.f, gh.f, side.f, panelX.f, label.s
+  Protected now.q, dt.f, mx.i, my.i, down.b, rdown.b, toolH.f, x.f, gw.f, gh.f, side.f, panelX.f, label.s
   now = ElapsedMilliseconds() : dt = (now - LastDraw) / 1000.0 : LastDraw = now
   If dt > 0.25 : dt = 0.25 : EndIf
   Emulate()
@@ -311,9 +442,10 @@ Procedure Tick()
     FpsSince = now
   EndIf
 
+  ; the mouse as the window gives it: in a DPI-aware window these are already physical (canvas)
+  ; pixels - scaling them again put every click 25% off at 125% (GlUIChrome.pbi, hosting section 5a)
   mx = WindowMouseX(Win) : my = WindowMouseY(Win)
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    mx = mx * PhysW / Util_WinWidth : my = my * PhysH / Util_WinHeight
     If GetActiveWindow() = Win
       down = Bool(GetAsyncKeyState_(#VK_LBUTTON) & $8000)
       rdown = Bool(GetAsyncKeyState_(#VK_RBUTTON) & $8000)
@@ -322,8 +454,9 @@ Procedure Tick()
     down = Bool(GetGadgetAttribute(Gl, #PB_OpenGL_Buttons) & #PB_OpenGL_LeftButton)
     rdown = Bool(GetGadgetAttribute(Gl, #PB_OpenGL_Buttons) & #PB_OpenGL_RightButton)
   CompilerEndIf
-  MouseToAmiga(mx, my, down, rdown)
+  If PtOn : mx = PtX : my = PtY : down = PtDown : rdown = 0 : EndIf   ; --pointer-test: the synthetic point, the same path
   Neon_ChromeBeginFrame(mx, my, down, Wheel, KeyCode, KeyChar, dt)
+  MouseToAmiga(Neon_MX, Neon_MY, down, rdown)
   Wheel = 0 : KeyCode = 0 : KeyChar = 0
 
   SetGadgetAttribute(Gl, #PB_OpenGL_SetContext, #True)
@@ -334,56 +467,58 @@ Procedure Tick()
   glClear_(#GL_COLOR_BUFFER_BIT)
   glEnable_(#GL_BLEND) : glBlendFunc_(#GL_SRC_ALPHA, #GL_ONE_MINUS_SRC_ALPHA)
 
-  s = UiScale : toolH = Round(40 * s, #PB_Round_Nearest)
+  toolH = Round(Neon_S(40), #PB_Round_Nearest)
   Neon_Box(0, 0, PhysW, toolH, Neon_C_HeadR, Neon_C_HeadG, Neon_C_HeadB)
-  x = 8 * s
-  If Neon_Button(x, 6 * s, 104 * s, toolH - 12 * s, "Kickstart...") : HostChooseRom() : EndIf : x + 110 * s
-  If Neon_Button(x, 6 * s, 90 * s, toolH - 12 * s, "Insert DF0...")
+  x = Neon_S(8)
+  If Btn("Kickstart", x, Neon_S(6), Neon_S(104), toolH - Neon_S(12), "Kickstart...") : HostChooseRom() : EndIf : x + Neon_S(110)
+  If Btn("Insert DF0", x, Neon_S(6), Neon_S(90), toolH - Neon_S(12), "Insert DF0...")
     label = OpenFileRequester("Insert a disk in DF0", ViewAdfFolder, "Amiga disks (*.adf)|*.adf|All files|*.*", 0)
     If label <> "" : HostInsert(0, label) : ViewAdfRefresh(GetPathPart(label)) : EndIf
-  EndIf : x + 96 * s
+  EndIf : x + Neon_S(96)
   label = "Pause" : If Paused : label = "Run" : EndIf
-  If Neon_Button(x, 6 * s, 72 * s, toolH - 12 * s, label + "  F5", Bool(Paused = 0)) : Paused = 1 - Paused : EmuLastUs = HostUs() : EndIf : x + 78 * s
-  If Neon_Button(x, 6 * s, 80 * s, toolH - 12 * s, "Step  F6") : StepInstruction() : EndIf : x + 86 * s
-  If Neon_Button(x, 6 * s, 88 * s, toolH - 12 * s, "Frame  F7") : Paused = 1 : AmigaRunFrame() : EndIf : x + 94 * s
-  If Neon_Button(x, 6 * s, 82 * s, toolH - 12 * s, "Reset  F8") : MachinePower() : EndIf : x + 88 * s
-  If Neon_Button(x, 6 * s, 76 * s, toolH - 12 * s, "Warp  F9", Warp) : Warp = 1 - Warp : EndIf : x + 82 * s
+  If Btn("Pause", x, Neon_S(6), Neon_S(72), toolH - Neon_S(12), label + "  F5", Bool(Paused = 0)) : Paused = 1 - Paused : EmuLastUs = HostUs() : EndIf : x + Neon_S(78)
+  If Btn("Step", x, Neon_S(6), Neon_S(80), toolH - Neon_S(12), "Step  F6") : StepInstruction() : EndIf : x + Neon_S(86)
+  If Btn("Frame", x, Neon_S(6), Neon_S(88), toolH - Neon_S(12), "Frame  F7") : Paused = 1 : AmigaRunFrame() : EndIf : x + Neon_S(94)
+  If Btn("Reset", x, Neon_S(6), Neon_S(82), toolH - Neon_S(12), "Reset  F8") : MachinePower() : EndIf : x + Neon_S(88)
+  If Btn("Warp", x, Neon_S(6), Neon_S(76), toolH - Neon_S(12), "Warp  F9", Warp) : Warp = 1 - Warp : EndIf : x + Neon_S(82)
   ; the standard: NTSC (the US A500) or PAL - switching it is a power cycle
   label = "NTSC" : If AmigaNtsc = 0 : label = "PAL" : EndIf
-  If Neon_Button(x, 6 * s, 56 * s, toolH - 12 * s, label) : AmigaNtsc = 1 - AmigaNtsc : MachinePower() : EndIf : x + 62 * s
+  If Btn("Standard", x, Neon_S(6), Neon_S(56), toolH - Neon_S(12), label) : AmigaNtsc = 1 - AmigaNtsc : MachinePower() : EndIf : x + Neon_S(62)
   label = "Mute" : If SoundMuted : label = "Sound" : EndIf
-  If Neon_Button(x, 6 * s, 70 * s, toolH - 12 * s, label, SoundMuted) : SoundMuted = 1 - SoundMuted : EndIf : x + 76 * s
-  Neon_Text(*Neon_FontMono, x + 8 * s, toolH / 2 - 8 * s, StrD(FpsShown, 1) + " fps  " + StrD(MipsShown, 2) + " M cycles/s (" + StringField("7.09|7.16", AmigaNtsc + 1, "|") + " real)   " + StatusLine, Neon_C_DimR, Neon_C_DimG, Neon_C_DimB)
+  If Btn("Sound", x, Neon_S(6), Neon_S(70), toolH - Neon_S(12), label, SoundMuted) : SoundMuted = 1 - SoundMuted : EndIf : x + Neon_S(76)
+  Neon_Text(*Neon_FontMono, x + Neon_S(8), toolH / 2 - Neon_S(8), StrD(FpsShown, 1) + " fps  " + StrD(MipsShown, 2) + " M cycles/s (" + StringField("7.09|7.16", AmigaNtsc + 1, "|") + " real)   " + StatusLine, Neon_C_DimR, Neon_C_DimG, Neon_C_DimB)
 
   ; the picture: 736 x 576 hires half-lines (PAL's height; NTSC fills the top 474) as large as fits
-  side = Round(620 * s, #PB_Round_Nearest)
+  side = Round(Neon_S(620), #PB_Round_Nearest)
   If side > PhysW * 0.5 : side = PhysW * 0.5 : EndIf
-  gw = PhysW - side - 24 * s : gh = PhysH - toolH - 24 * s
+  gw = PhysW - side - Neon_S(24) : gh = PhysH - toolH - Neon_S(24)
   PicScale = gw / #AM_OUT_W
   If gh / #HOST_FRAME_H < PicScale : PicScale = gh / #HOST_FRAME_H : EndIf
-  PicX = 12 * s + (gw - #AM_OUT_W * PicScale) / 2
-  PicY = toolH + 12 * s + (gh - #HOST_FRAME_H * PicScale) / 2
+  PicX = Neon_S(12) + (gw - #AM_OUT_W * PicScale) / 2
+  PicY = toolH + Neon_S(12) + (gh - #HOST_FRAME_H * PicScale) / 2
   ViewDrawPicture(PicX, PicY, PicScale)
+  CtlSet("screen", PicX, PicY, #AM_OUT_W * PicScale, #HOST_FRAME_H * PicScale)
   If Halted
-    Neon_Text(*Neon_FontBold, PicX + 8 * s, PicY + 8 * s, "CPU HALTED (double bus fault) at $" + Hex(M68kGetPC()), Neon_C_RedR, Neon_C_RedG, Neon_C_RedB)
+    Neon_Text(*Neon_FontBold, PicX + Neon_S(8), PicY + Neon_S(8), "CPU HALTED (double bus fault) at $" + Hex(M68kGetPC()), Neon_C_RedR, Neon_C_RedG, Neon_C_RedB)
   EndIf
   ; the power LED
   If (CiaPra(0) & 2) = 0
-    Neon_Box(PicX, PicY + #HOST_FRAME_H * PicScale + 4 * s, 24 * s, 6 * s, 1.0, 0.1, 0.1)
+    Neon_Box(PicX, PicY + #HOST_FRAME_H * PicScale + Neon_S(4), Neon_S(24), Neon_S(6), 1.0, 0.1, 0.1)
   Else
-    Neon_Box(PicX, PicY + #HOST_FRAME_H * PicScale + 4 * s, 24 * s, 6 * s, 0.35, 0.05, 0.05)
+    Neon_Box(PicX, PicY + #HOST_FRAME_H * PicScale + Neon_S(4), Neon_S(24), Neon_S(6), 0.35, 0.05, 0.05)
   EndIf
   If DrvMotor(0)
-    Neon_Box(PicX + 30 * s, PicY + #HOST_FRAME_H * PicScale + 4 * s, 24 * s, 6 * s, 0.1, 1.0, 0.2)
+    Neon_Box(PicX + Neon_S(30), PicY + #HOST_FRAME_H * PicScale + Neon_S(4), Neon_S(24), Neon_S(6), 0.1, 1.0, 0.2)
   EndIf
 
-  panelX = PhysW - side - 6 * s
-  ActiveTab = Neon_TabStrip(1, panelX, toolH + 6 * s, side, 30 * s, "CPU|Copper|Blitter|Custom|CIAs|Memory|Disks", ActiveTab)
-  ViewDrawPanel(ActiveTab, panelX, toolH + 40 * s, side, PhysH - toolH - 46 * s)
+  panelX = PhysW - side - Neon_S(6)
+  ActiveTab = Neon_TabStrip(1, panelX, toolH + Neon_S(6), side, Neon_S(30), "CPU|Copper|Blitter|Custom|CIAs|Memory|Disks", ActiveTab)
+  ViewDrawPanel(ActiveTab, panelX, toolH + Neon_S(40), side, PhysH - toolH - Neon_S(46))
 
   Neon_ChromeEndFrame()
   If ShotFile <> "" And now >= ShotAtMs : SaveWindowShot(ShotFile) : Quit = 1 : EndIf
   SetGadgetAttribute(Gl, #PB_OpenGL_FlipBuffers, #True)
+  If PtOn : PtStep() : If PtDone : Quit = 1 : EndIf : EndIf
 EndProcedure
 
 Procedure KeyEvent(k.i, up.i)
@@ -399,11 +534,9 @@ EndProcedure
 ; ---------------------------------------------------------------- main
 Procedure Main()
   Protected ev.i, k.i, et.i, rom.s, ext.s, adf.s, df1.s, a.s
-  UiScale = DesktopResolutionX() : If UiScale < 1 : UiScale = 1 : EndIf
   Gl = OpenGLWindow("Amiga 500 (PureMetal)", 1500, 860, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
   If Gl = 0 : MessageRequester("Amiga", "OpenGL could not be started.") : End 1 : EndIf
   Win = Util_MainWindowID
-  BuildFonts()
   MeasureWindow()
   GL_SetVSync(1)
   KeyMapInit()
@@ -416,6 +549,7 @@ Procedure Main()
     ElseIf a = "--adf" : k + 1 : adf = ProgramParameter(k)
     ElseIf a = "--df1" : k + 1 : df1 = ProgramParameter(k)
     ElseIf a = "--mute" : SoundMuted = 1
+    ElseIf a = "--pointer-test" : k + 1 : PtFile$ = ProgramParameter(k) : PtOn = 1 : SoundMuted = 1
     ElseIf a = "--pal" : AmigaNtsc = 0
     ElseIf a = "--ntsc" : AmigaNtsc = 1
     ElseIf a = "--fast" : Warp = 1
@@ -438,12 +572,13 @@ Procedure Main()
   PadCount = InitJoystick()
   FpsSince = ElapsedMilliseconds() : LastDraw = FpsSince
   If ShotFile <> "" : ShotAtMs + FpsSince : EndIf
+  If PtOn : PtInit() : EndIf
   Repeat
     Repeat
       ev = WindowEvent()
       Select ev
         Case #PB_Event_CloseWindow : Quit = 1
-        Case #PB_Event_SizeWindow, #PB_Event_MaximizeWindow, #PB_Event_RestoreWindow : MeasureWindow()
+        Case #PB_Event_SizeWindow, #PB_Event_MoveWindow, #PB_Event_MaximizeWindow, #PB_Event_RestoreWindow : MeasureWindow()
         Case #PB_Event_Menu
           If EventMenu() = 1001 : KeyEvent(#PB_Shortcut_Escape, 0) : KeyEvent(#PB_Shortcut_Escape, 1) : EndIf
         Case #PB_Event_Gadget
@@ -473,5 +608,6 @@ Procedure Main()
     Tick()
   Until Quit
   SoundEnd()
+  If PtOn : End PtFails : EndIf   ; --pointer-test: the number of failures
 EndProcedure
 Main()

@@ -289,6 +289,14 @@ folder of `.ADF` files).
 | F11 | full screen |
 | NTSC/PAL button | switch the standard (a power cycle) |
 
+`amiga.exe --pointer-test <log>` checks that the pointer and the controls agree
+at the display's scale, without touching the real pointer. It drives the window
+with synthetic positions: four points on each of 22 controls, from the
+toolbar at the top to the disk list's last row at the bottom, including the
+picture, which takes the Amiga's mouse. It writes each result to `<log>` and
+exits with the number of failures. At 125% all 88 points pass, read back
+within 0.5 px.
+
 `amiga_cli` runs without a window. It prints what the Amiga sent on its
 serial port and where the CPU is, and can save the last picture. `--dump-chip
 <file>` saves chip RAM, slow RAM and the audio ring for comparison with a
