@@ -62,7 +62,25 @@ Procedure ViewInit()
   ViewTextureMake(@ViewPic, #AM_OUT_W, #HOST_FRAME_H)
 EndProcedure
 
-; The picture at (x, y), scale picture pixels per texel (the 4:3 PAL shape kept).
+; The picture's first rows (NTSC shows 474 of the 576), w x h on the canvas whatever its texel shape: the
+; engine's sprite draw scales both ways alike, so a second sprite on the same texture declares the width the
+; picture should have at that scale - the texture coordinates still span the whole width.
+Global ViewPicShaped.GLSprite
+Procedure ViewDrawPictureShaped(x.f, y.f, w.f, h.f, rows.i)
+  Protected k.f = h / rows, srcY.f
+  ViewPicUpload()
+  CopyStructure(@ViewPic\sprite, @ViewPicShaped, GLSprite)
+  ViewPicShaped\Width = w / k
+  ; the rows from the top of the picture: on Windows the texture holds them bottom-up
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    srcY = #HOST_FRAME_H - rows
+  CompilerElse
+    srcY = 0
+  CompilerEndIf
+  DrawGLSprite(@ViewPicShaped, x, y, 0.0, k, 1.0, 1.0, 1.0, 1.0, #True, 0, srcY, ViewPicShaped\Width, rows, #True)
+EndProcedure
+
+; The picture at (x, y), scale canvas pixels per texel (square texels: the windowed view).
 Procedure ViewDrawPicture(x.f, y.f, scale.f)
   ViewPicUpload()
   Neon_Box(x - 2, y - 2, #AM_OUT_W * scale + 4, #HOST_FRAME_H * scale + 4, 0, 0, 0)
@@ -359,6 +377,40 @@ Procedure ViewDisks(x.f, y.f, w.f, h.f)
   Neon_ListEnd()
 EndProcedure
 
+; The Controls tab: every mapping, from the same table the keyboard code reads (controls.pbi). The wheel
+; over the pane scrolls it.
+Global ViewCtlTop.i
+Procedure ViewControls(x.f, y.f, w.f, h.f)
+  Protected lh.f, bottom.f, line.i, g.i, title$, kinds$, k$, top.f = y
+  lh = GLFontLineHeight(*Neon_FontMono)
+  Neon_Panel(x, y, w, h, "Controls", Neon_C_AccR, Neon_C_AccG, Neon_C_AccB)
+  If Neon_MX >= x And Neon_MX < x + w And Neon_MY >= y And Neon_MY < y + h
+    ViewCtlTop - Neon_Wheel * 3
+  EndIf
+  If ViewCtlTop < 0 : ViewCtlTop = 0 : EndIf
+  y + Neon_S(34) : x + Neon_S(12) : bottom = top + h - Neon_S(8)
+  For g = 0 To 2
+    title$ = StringField("AMIGA KEYBOARD|MOUSE (PORT 1) AND JOYSTICK (PORT 2)|THE WINDOW", g + 1, "|")
+    kinds$ = StringField("," + Str(#CTL_KEY) + "," + Str(#CTL_NOTE) + ",|," + Str(#CTL_MOUSE) + "," + Str(#CTL_JOY) + "," + Str(#CTL_PAD) + ",|," + Str(#CTL_SHORTCUT) + ",", g + 1, "|")
+    If line >= ViewCtlTop And y + lh < bottom
+      Neon_Text(*Neon_FontSmall, x, y, title$, Neon_C_AmbR, Neon_C_AmbG, Neon_C_AmbB) : y + lh
+    EndIf
+    line + 1
+    ForEach Controls()
+      k$ = "," + Str(Controls()\kind) + ","
+      If FindString(kinds$, k$) And Controls()\hidden = 0
+        If line >= ViewCtlTop And y + lh < bottom
+          y = ViewLine(x, y, LSet(Controls()\pc$, 28) + Controls()\amiga$)
+        EndIf
+        line + 1
+      EndIf
+    Next
+    If line >= ViewCtlTop : y + lh / 2 : EndIf
+    line + 1
+  Next
+  If ViewCtlTop > line - 1 : ViewCtlTop = line - 1 : EndIf
+EndProcedure
+
 Procedure ViewDrawPanel(tab.i, x.f, y.f, w.f, h.f)
   Select tab
     Case 0 : ViewCpu(x, y, w, h)
@@ -368,5 +420,6 @@ Procedure ViewDrawPanel(tab.i, x.f, y.f, w.f, h.f)
     Case 4 : ViewCias(x, y, w, h)
     Case 5 : ViewMemory(x, y, w, h)
     Case 6 : ViewDisks(x, y, w, h)
+    Case 7 : ViewControls(x, y, w, h)
   EndSelect
 EndProcedure
