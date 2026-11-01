@@ -772,8 +772,10 @@ Procedure Main()
           If EventGadget() = Gl
             et = EventType()
             Select et
-              Case #PB_EventType_KeyDown : HostKey(GetGadgetAttribute(Gl, #PB_OpenGL_Key), 0)
-              Case #PB_EventType_KeyUp : HostKey(GetGadgetAttribute(Gl, #PB_OpenGL_Key), 1)
+              ; the same code for a key's press and release on both systems (GL_KeyEventCode: on Linux a
+              ; letter comes up as its lower-case keysym)
+              Case #PB_EventType_KeyDown : HostKey(GL_KeyEventCode(GetGadgetAttribute(Gl, #PB_OpenGL_Key)), 0)
+              Case #PB_EventType_KeyUp : HostKey(GL_KeyEventCode(GetGadgetAttribute(Gl, #PB_OpenGL_Key)), 1)
               Case #PB_EventType_LeftButtonDown : MouseLeft = 1
               Case #PB_EventType_LeftButtonUp : MouseLeft = 0
               Case #PB_EventType_RightButtonDown : MouseRight = 1
