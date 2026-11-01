@@ -39,10 +39,11 @@ XIncludeFile "amiga_view.pbi"
 
 Global Win.i, Gl.i, PhysW.i, PhysH.i
 Global Quit.i, Paused.i, Warp.i, PowerCount.i
-Global KeyCode.i, KeyChar.i, Wheel.i
-Global Dim KeyDown.i(256)
-Global Dim KeyMap.i(256)
-Global PadCount.i
+Global KeyCode.i, KeyChar.i, Wheel.i, MouseLeft.i, MouseRight.i
+; keys by the code the window gives (controls.pbi): a Windows virtual key, an X keysym on Linux ($FF00 up)
+#KEY_CODES = $10000
+Global Dim KeyDown.i(#KEY_CODES)
+Global Dim KeyMap.i(#KEY_CODES)
 Global EmuAccum.d, EmuLastUs.q, EmuFrameUs.d = 1000000.0 / 60.0
 Global FpsShown.d, FpsFrames.i, FpsSince.q, MipsShown.d, CycSince.i
 Global ActiveTab.i, StatusLine.s, LastDraw.q
@@ -58,10 +59,10 @@ EndProcedure
 ; From the controls table (controls.pbi), which the Controls tab and the README show.
 Procedure KeyMapInit()
   Protected i.i
-  For i = 0 To 255 : KeyMap(i) = -1 : Next
+  For i = 0 To #KEY_CODES - 1 : KeyMap(i) = -1 : Next
   ControlsInit()
   ForEach Controls()
-    If Controls()\kind = #CTL_KEY And Controls()\vk >= 0 And Controls()\vk <= 255
+    If Controls()\kind = #CTL_KEY And Controls()\vk > 0 And Controls()\vk < #KEY_CODES
       KeyMap(Controls()\vk) = Controls()\code
     EndIf
   Next
@@ -86,14 +87,7 @@ Procedure BuildFonts()
 EndProcedure
 
 Procedure MeasureWindow()
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    Protected client.RECT
-    GetClientRect_(WindowID(Win), @client)
-    PhysW = client\right - client\left : PhysH = client\bottom - client\top
-  CompilerElse
-    PhysW = WindowWidth(Win, #PB_Window_InnerCoordinate) * Linux_DPIScale
-    PhysH = WindowHeight(Win, #PB_Window_InnerCoordinate) * Linux_DPIScale
-  CompilerEndIf
+  GL_ClientPixels(Win, @PhysW, @PhysH)
   If PhysW < 1 : PhysW = 1 : EndIf
   If PhysH < 1 : PhysH = 1 : EndIf
   ResizeGadget(Gl, 0, 0, WindowWidth(Win, #PB_Window_InnerCoordinate), WindowHeight(Win, #PB_Window_InnerCoordinate))
@@ -157,16 +151,18 @@ EndProcedure
 ; The 68000 test corpus through the console checker (the same runner the board uses).
 Procedure ViewRunTests()
   Protected p.i, out.s, line.s, exe.s, dir.s
-  exe = GetPathPart(ProgramFilename()) + "m68k_check.exe"
+  ; beside this program, with its extension (.exe on Windows, none on Linux)
+  exe = GetPathPart(ProgramFilename()) + "m68k_check"
+  If GetExtensionPart(ProgramFilename()) <> "" : exe + "." + GetExtensionPart(ProgramFilename()) : EndIf
   If FileSize(exe) <= 0
-    ViewTestText = "m68k_check.exe is not beside this program (desktop/run_check.sh builds it)"
+    ViewTestText = GetFilePart(exe) + " is not beside this program (desktop/run_check.sh builds it)"
     ViewTestBad = 1
     ProcedureReturn
   EndIf
   ; the streams tools/vectors.py writes: SST_680X0_DIR, or tests/680x0/compact in the repository
   dir = GetEnvironmentVariable("SST_680X0_DIR")
   If dir = ""
-    dir = GetPathPart(ProgramFilename()) + "..\tests\680x0\compact"
+    dir = GetPathPart(ProgramFilename()) + ".." + #PS$ + "tests" + #PS$ + "680x0" + #PS$ + "compact"
   EndIf
   p = RunProgram(exe, Chr(34) + dir + Chr(34), "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
   If p = 0
@@ -190,17 +186,47 @@ Procedure ViewRunTests()
   If out = "" : ViewTestText = "the checker printed no total" : ViewTestBad = 1 : EndIf
 EndProcedure
 
+; The gamepad through the engine (GL_PadRead: an Xbox-layout pad; GL_JoyRead: any other controller): the first
+; that answers, kept until it stops answering; with none, looked for again once a second.
+Global PadPort.i = -1, JoyPort.i = -1, PadScanAt.q
+Procedure.i PadBits()
+  Protected p.GLPadState, j.GLJoyState, i.i, b.i
+  If PadPort < 0 And JoyPort < 0
+    If ElapsedMilliseconds() < PadScanAt : ProcedureReturn 0 : EndIf
+    PadScanAt = ElapsedMilliseconds() + 1000
+    For i = 0 To 3
+      If GL_PadRead(i, @p) : PadPort = i : Break : EndIf
+    Next
+    If PadPort < 0
+      For i = 0 To 15
+        If GL_JoyRead(i, @j) : JoyPort = i : Break : EndIf
+      Next
+    EndIf
+  EndIf
+  If PadPort >= 0
+    If GL_PadRead(PadPort, @p) = 0 : PadPort = -1 : ProcedureReturn 0 : EndIf
+    ; the d-pad or the left stick (up positive), A or B fire
+    If p\Buttons & 1 Or p\LY > 16000 : b | 1 : ElseIf p\Buttons & 2 Or p\LY < -16000 : b | 2 : EndIf
+    If p\Buttons & 4 Or p\LX < -16000 : b | 4 : ElseIf p\Buttons & 8 Or p\LX > 16000 : b | 8 : EndIf
+    If p\Buttons & $3000 : b | 16 : EndIf
+  ElseIf JoyPort >= 0
+    If GL_JoyRead(JoyPort, @j) = 0 : JoyPort = -1 : ProcedureReturn 0 : EndIf
+    ; the stick (0-65535, centred) or the hat, button 1 or 2 fire
+    If j\Axis[1] < 16384 Or (j\POV <> $FFFF And (j\POV >= 31500 Or j\POV <= 4500)) : b | 1
+    ElseIf j\Axis[1] > 49151 Or (j\POV >= 13500 And j\POV <= 22500) : b | 2 : EndIf
+    If j\Axis[0] < 16384 Or (j\POV >= 22500 And j\POV <= 31500) : b | 4
+    ElseIf j\Axis[0] > 49151 Or (j\POV >= 4500 And j\POV <= 13500) : b | 8 : EndIf
+    If j\Buttons & 3 : b | 16 : EndIf
+  EndIf
+  ProcedureReturn b
+EndProcedure
+
 Procedure ReadPads()
   Protected b.i
   ForEach Controls()
     If Controls()\kind = #CTL_JOY And KeyDown(Controls()\vk) : b | Controls()\code : EndIf
   Next
-  If PadCount > 0 And ExamineJoystick(0)
-    If JoystickAxisY(0) < 0 : b | 1 : ElseIf JoystickAxisY(0) > 0 : b | 2 : EndIf
-    If JoystickAxisX(0) < 0 : b | 4 : ElseIf JoystickAxisX(0) > 0 : b | 8 : EndIf
-    If JoystickButton(0, 1) Or JoystickButton(0, 2) : b | 16 : EndIf
-  EndIf
-  JoyBits = b
+  JoyBits = b | PadBits()
 EndProcedure
 
 ; Whole frames at the PAL rate (50 Hz); never more than three a pass. Warp: as fast as it goes.
@@ -393,33 +419,25 @@ EndProcedure
 ; 14.32 MHz and 14.75 / 14.19 MHz), as large as fits and centred. The emulation, sound and frame rate are the
 ; window's. Esc leaves (and is not the Amiga's ESC there: End is), and the window's placement and style come
 ; back exactly. The PC mouse over the picture is still the Amiga's, mapped into the scaled picture.
-Global FullScreen.i, FsStyle.i, FsPlacement.WINDOWPLACEMENT, FsCursorHidden.i, FsMouseX.f, FsMouseY.f, FsMouseMs.q
+; Full screen, the pointer and the window's rectangles are the engine's (GlUtilities.pbi, HOST SERVICES).
+Global FullScreen.i, FsMouseX.f, FsMouseY.f, FsMouseMs.q
 Global FsViewX.f, FsViewY.f, FsViewW.f, FsViewH.f
 Global FtShotNow.i, FtShot$
 
 Procedure FsShowCursor(show.i)
-  If show And FsCursorHidden : ShowCursor_(#True) : FsCursorHidden = 0 : EndIf
-  If show = 0 And FsCursorHidden = 0 : ShowCursor_(#False) : FsCursorHidden = 1 : EndIf
+  GL_CursorShow(Win, Gl, show)
 EndProcedure
 
 Procedure EnterFullScreen()
-  Protected hwnd.i = WindowID(Win), mi.MONITORINFO
   If FullScreen : ProcedureReturn : EndIf
-  FsPlacement\length = SizeOf(WINDOWPLACEMENT) : GetWindowPlacement_(hwnd, @FsPlacement)
-  FsStyle = GetWindowLongPtr_(hwnd, #GWL_STYLE)
-  mi\cbSize = SizeOf(MONITORINFO) : GetMonitorInfo_(MonitorFromWindow_(hwnd, 2), @mi)   ; 2: the nearest monitor
-  SetWindowLongPtr_(hwnd, #GWL_STYLE, FsStyle & ~(#WS_CAPTION | #WS_THICKFRAME | #WS_MINIMIZEBOX | #WS_MAXIMIZEBOX | #WS_SYSMENU))
-  SetWindowPos_(hwnd, #HWND_TOP, mi\rcMonitor\left, mi\rcMonitor\top, mi\rcMonitor\right - mi\rcMonitor\left, mi\rcMonitor\bottom - mi\rcMonitor\top, #SWP_FRAMECHANGED | #SWP_NOOWNERZORDER | #SWP_SHOWWINDOW)
+  GL_FullscreenEnter(Win)
   FullScreen = 1 : KbNoEsc = 1 : FsMouseMs = ElapsedMilliseconds()
   MeasureWindow()                                ; the client size and the scale, measured again
 EndProcedure
 
 Procedure LeaveFullScreen()
-  Protected hwnd.i = WindowID(Win)
   If FullScreen = 0 : ProcedureReturn : EndIf
-  SetWindowLongPtr_(hwnd, #GWL_STYLE, FsStyle)
-  SetWindowPlacement_(hwnd, @FsPlacement)
-  SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_FRAMECHANGED | #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_NOOWNERZORDER)
+  GL_FullscreenLeave(Win)
   FullScreen = 0 : KbNoEsc = 0 : FsShowCursor(1)
   MeasureWindow()
 EndProcedure
@@ -470,35 +488,36 @@ Procedure WindowAction(act.i)
 EndProcedure
 
 ; ---------------------------------------------------------------- --fullscreen-test
-; Full screen by its own keys, without the real pointer or keyboard: the keys are posted to this window's
-; GL gadget, and the mouse checks use the pointer test's synthetic point (PtOn). Checked under NTSC and then
+; Full screen by its own keys, without the real pointer or keyboard: the keys go through the window's key
+; handler (HostKey, what the GL gadget's key events call), and the mouse checks use the pointer test's
+; synthetic point (PtOn). Checked under NTSC and then
 ; PAL: Esc in the window is the Amiga's ESC; F5 is the Amiga's F5 (not a window key); F11 covers the window's
 ; monitor, the scale and client size are measured again, the picture has the standard's real shape, fits and
 ; is centred, the PC mouse is the Amiga's inside it and not in the bars, the machine runs on; Esc leaves, is not
 ; passed to the Amiga, and the windowed rectangle comes back exactly; End is ESC; F12 pauses and runs.
-Global FtOn.i, FtFile$, FtLog$, FtFails.i, FtStep.i, FtWait.i, FtWin.RECT, FtFrame.i, FtPaused.i, FtStd$, FtShotDone.i
+Global FtOn.i, FtFile$, FtLog$, FtFails.i, FtStep.i, FtWait.i, FtWin.GLHostRect, FtFrame.i, FtPaused.i, FtStd$, FtShotDone.i
+Declare HostKey(k.i, up.i)
 
 Procedure FtCheck(ok.i, what$)
   FtLog$ + StringField("FAIL|ok", 1 + Bool(ok), "|") + "  " + what$ + #LF$
   If ok = 0 : FtFails + 1 : EndIf
 EndProcedure
 
-Procedure FtKey(vk.i, up.i)
-  If up
-    PostMessage_(GadgetID(Gl), #WM_KEYUP, vk, $C0000001)
-  Else
-    PostMessage_(GadgetID(Gl), #WM_KEYDOWN, vk, 1)
-  EndIf
+Procedure FtKey(k.i, up.i)
+  HostKey(k, up)
+EndProcedure
+
+Procedure.s FtRect(*r.GLHostRect)
+  ProcedureReturn Str(*r\X) + "," + Str(*r\Y) + " - " + Str(*r\X + *r\W) + "," + Str(*r\Y + *r\H)
 EndProcedure
 
 Procedure FtCheckFull()
-  Protected r.RECT, mi.MONITORINFO, hwnd.i = WindowID(Win), a.f = FsShape()
-  GetWindowRect_(hwnd, @r) : mi\cbSize = SizeOf(MONITORINFO) : GetMonitorInfo_(MonitorFromWindow_(hwnd, 2), @mi)
+  Protected r.GLHostRect, m.GLHostRect, a.f = FsShape()
+  GL_WindowRect(Win, @r) : GL_FullscreenRect(@m)
   FtCheck(FullScreen, FtStd$ + ": F11 entered full screen")
-  FtCheck(Bool(r\left = mi\rcMonitor\left And r\top = mi\rcMonitor\top And r\right = mi\rcMonitor\right And r\bottom = mi\rcMonitor\bottom),
-          FtStd$ + ": the window covers its monitor (" + Str(r\left) + "," + Str(r\top) + " - " + Str(r\right) + "," + Str(r\bottom) + "; monitor " +
-          Str(mi\rcMonitor\left) + "," + Str(mi\rcMonitor\top) + " - " + Str(mi\rcMonitor\right) + "," + Str(mi\rcMonitor\bottom) + ")")
-  FtCheck(Bool(Abs(PhysW - (mi\rcMonitor\right - mi\rcMonitor\left)) <= 1 And Abs(Neon_UIScale - PhysW / Util_WinWidth) < 0.01),
+  FtCheck(Bool(r\X = m\X And r\Y = m\Y And r\W = m\W And r\H = m\H),
+          FtStd$ + ": the window covers its monitor (" + FtRect(@r) + "; monitor " + FtRect(@m) + ")")
+  FtCheck(Bool(Abs(PhysW - m\W) <= 1 And Abs(Neon_UIScale - PhysW / Util_WinWidth) < 0.01),
           FtStd$ + ": client size and scale measured again: " + Str(PhysW) + "x" + Str(PhysH) + " physical, " + Str(Util_WinWidth) + " logical, scale " + StrF(Neon_UIScale, 3))
   FtCheck(Bool(Abs(FsViewW / FsViewH - a) < 0.005), FtStd$ + ": the picture " + StrF(FsViewW, 0) + "x" + StrF(FsViewH, 0) + " has the standard's shape " + StrF(FsViewW / FsViewH, 4) + " (" + StrF(a, 4) + ": " + Str(FsRows()) + " rows)")
   FtCheck(Bool(FsViewW <= PhysW And FsViewH <= PhysH And (Abs(FsViewW - PhysW) <= 1 Or Abs(FsViewH - PhysH) <= 1)), FtStd$ + ": as large as fits in " + Str(PhysW) + "x" + Str(PhysH))
@@ -507,21 +526,21 @@ EndProcedure
 
 ; One step, after each frame is shown.
 Procedure FtStep()
-  Protected r.RECT, f.i
+  Protected r.GLHostRect, f.i
   If FtWait > 0 : FtWait - 1 : ProcedureReturn : EndIf
   FtStep + 1
   Select FtStep
     Case 1 : FtStd$ = "NTSC" : FtWait = 120                      ; the program under way
-    Case 2 : GetWindowRect_(WindowID(Win), @FtWin) : LastAmigaKey = -1 : FtKey(#VK_ESCAPE, 0)
-    Case 3 : FtKey(#VK_ESCAPE, 1) : FtWait = 3
+    Case 2 : GL_WindowRect(Win, @FtWin) : LastAmigaKey = -1 : FtKey(#PB_Shortcut_Escape, 0)
+    Case 3 : FtKey(#PB_Shortcut_Escape, 1) : FtWait = 3
     Case 4
       FtCheck(Bool(LastAmigaKey = $45 And FullScreen = 0), "Esc in the window is the Amiga's ESC and leaves the window as it is")
-      LastAmigaKey = -1 : FtKey(#VK_F5, 0)
-    Case 5 : FtKey(#VK_F5, 1) : FtWait = 3
+      LastAmigaKey = -1 : FtKey(#PB_Shortcut_F5, 0)
+    Case 5 : FtKey(#PB_Shortcut_F5, 1) : FtWait = 3
     Case 6
       FtCheck(Bool(LastAmigaKey = $54), "F5 is the Amiga's F5 (the window's keys are F11, F12, Page Up / Down, Pause, Scroll Lock)")
-      FtKey(#VK_F11, 0)
-    Case 7 : FtKey(#VK_F11, 1) : FtWait = 8
+      FtKey(#PB_Shortcut_F11, 0)
+    Case 7 : FtKey(#PB_Shortcut_F11, 1) : FtWait = 8
     Case 8
       FtCheckFull()
       FtFrame = FrameCount
@@ -539,28 +558,27 @@ Procedure FtStep()
       FtCheck(Bool(FrameCount > FtFrame), FtStd$ + ": the machine ran on in full screen (" + Str(FrameCount - FtFrame) + " frames)")
       If FtShotDone = 0 : FtShotNow = 1 : FtShotDone = 1 : EndIf
       FtWait = 2
-    Case 12 : LastAmigaKey = -1 : FtKey(#VK_ESCAPE, 0)
-    Case 13 : FtKey(#VK_ESCAPE, 1) : FtWait = 8
+    Case 12 : LastAmigaKey = -1 : FtKey(#PB_Shortcut_Escape, 0)
+    Case 13 : FtKey(#PB_Shortcut_Escape, 1) : FtWait = 8
     Case 14
-      GetWindowRect_(WindowID(Win), @r)
+      GL_WindowRect(Win, @r)
       FtCheck(Bool(FullScreen = 0), FtStd$ + ": Esc left full screen")
       FtCheck(Bool(LastAmigaKey = -1), FtStd$ + ": Esc in full screen was not passed to the Amiga")
-      FtCheck(Bool(r\left = FtWin\left And r\top = FtWin\top And r\right = FtWin\right And r\bottom = FtWin\bottom),
-              FtStd$ + ": the window came back to " + Str(r\left) + "," + Str(r\top) + " - " + Str(r\right) + "," + Str(r\bottom) + " (was " +
-              Str(FtWin\left) + "," + Str(FtWin\top) + " - " + Str(FtWin\right) + "," + Str(FtWin\bottom) + ")")
+      FtCheck(Bool(r\X = FtWin\X And r\Y = FtWin\Y And r\W = FtWin\W And r\H = FtWin\H),
+              FtStd$ + ": the window came back to " + FtRect(@r) + " (was " + FtRect(@FtWin) + ")")
       FtCheck(Bool(Abs(Neon_UIScale - PhysW / Util_WinWidth) < 0.01 And PhysW < 10000), FtStd$ + ": scale measured again in the window: " + StrF(Neon_UIScale, 3))
-      LastAmigaKey = -1 : FtKey(#VK_END, 0)
-    Case 15 : FtKey(#VK_END, 1) : FtWait = 3
+      LastAmigaKey = -1 : FtKey(#PB_Shortcut_End, 0)
+    Case 15 : FtKey(#PB_Shortcut_End, 1) : FtWait = 3
     Case 16
       FtCheck(Bool(LastAmigaKey = $45), "End is the Amiga's ESC")
       If FtStd$ = "NTSC"
         ; again under PAL: its 576 rows and its shape
-        AmigaNtsc = 0 : MachinePower() : FtStd$ = "PAL" : FtKey(#VK_F11, 0) : FtStep = 6 : FtWait = 20
+        AmigaNtsc = 0 : MachinePower() : FtStd$ = "PAL" : FtKey(#PB_Shortcut_F11, 0) : FtStep = 6 : FtWait = 20
       EndIf
-    Case 17 : FtPaused = Paused : FtKey(#VK_F12, 0)
-    Case 18 : FtKey(#VK_F12, 1) : FtWait = 3
-    Case 19 : FtCheck(Bool(Paused <> FtPaused), "F12 pauses / runs") : FtKey(#VK_F12, 0)
-    Case 20 : FtKey(#VK_F12, 1) : FtWait = 3
+    Case 17 : FtPaused = Paused : FtKey(#PB_Shortcut_F12, 0)
+    Case 18 : FtKey(#PB_Shortcut_F12, 1) : FtWait = 3
+    Case 19 : FtCheck(Bool(Paused <> FtPaused), "F12 pauses / runs") : FtKey(#PB_Shortcut_F12, 0)
+    Case 20 : FtKey(#PB_Shortcut_F12, 1) : FtWait = 3
     Case 21
       FtCheck(Bool(Paused = FtPaused), "F12 again puts it back")
       FtLog$ + "fullscreen-test: " + Str(FtFails) + " failures" + #LF$
@@ -587,15 +605,8 @@ Procedure Tick()
   ; the mouse as the window gives it: in a DPI-aware window these are already physical (canvas)
   ; pixels - scaling them again put every click 25% off at 125% (GlUIChrome.pbi, hosting section 5a)
   mx = WindowMouseX(Win) : my = WindowMouseY(Win)
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    If GetActiveWindow() = Win
-      down = Bool(GetAsyncKeyState_(#VK_LBUTTON) & $8000)
-      rdown = Bool(GetAsyncKeyState_(#VK_RBUTTON) & $8000)
-    EndIf
-  CompilerElse
-    down = Bool(GetGadgetAttribute(Gl, #PB_OpenGL_Buttons) & #PB_OpenGL_LeftButton)
-    rdown = Bool(GetGadgetAttribute(Gl, #PB_OpenGL_Buttons) & #PB_OpenGL_RightButton)
-  CompilerEndIf
+  ; the buttons from the GL gadget's own button events (Main), let go when the window loses the focus
+  down = MouseLeft : rdown = MouseRight
   If PtOn : mx = PtX : my = PtY : down = PtDown : rdown = 0 : EndIf   ; --pointer-test: the synthetic point, the same path
   Neon_ChromeBeginFrame(mx, my, down, Wheel, KeyCode, KeyChar, dt)
   MouseToAmiga(Neon_MX, Neon_MY, down, rdown)
@@ -675,7 +686,7 @@ Procedure Tick()
 EndProcedure
 
 Procedure KeyEvent(k.i, up.i)
-  If k < 0 Or k > 255 : ProcedureReturn : EndIf
+  If k <= 0 Or k >= #KEY_CODES : ProcedureReturn : EndIf
   If k = #PB_Shortcut_Escape And KbNoEsc : ProcedureReturn : EndIf   ; full screen: Esc is the window's (End is ESC)
   If KeyMap(k) >= 0
     If up Or KeyDown(k) = 0
@@ -686,21 +697,33 @@ Procedure KeyEvent(k.i, up.i)
   KeyDown(k) = 1 - up
 EndProcedure
 
+; A key from the GL gadget (or the --fullscreen-test): the window's own keys first (the controls table), then
+; the Amiga's.
+Procedure HostKey(k.i, up.i)
+  If up = 0 And ControlsAction(k, FullScreen)
+    WindowAction(ControlsAction(k, FullScreen))
+  Else
+    KeyEvent(k, up)
+  EndIf
+EndProcedure
+
 ; ---------------------------------------------------------------- main
 Procedure Main()
   Protected ev.i, k.i, et.i, rom.s, ext.s, adf.s, df1.s, a.s
   ; no larger than the work area (it is in physical pixels; OpenWindow takes logical ones), less the frame
-  Protected wa.RECT, ww.i = 1500, wh.i = 860
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    SystemParametersInfo_(#SPI_GETWORKAREA, 0, @wa, 0)
-    If (wa\right - wa\left) / DesktopResolutionX() - 40 < ww : ww = (wa\right - wa\left) / DesktopResolutionX() - 40 : EndIf
-    If (wa\bottom - wa\top) / DesktopResolutionY() - 60 < wh : wh = (wa\bottom - wa\top) / DesktopResolutionY() - 60 : EndIf
-  CompilerEndIf
+  Protected wa.GLHostRect, ww.i = 1500, wh.i = 860
+  GL_HostPrepare()                               ; before any window: the OS's set-up (X11 on Linux, DPI on Windows)
+  GL_WorkArea(@wa)                               ; logical units, as OpenWindow takes them
+  If wa\W - 40 < ww : ww = wa\W - 40 : EndIf
+  If wa\H - 60 < wh : wh = wa\H - 60 : EndIf
   Gl = OpenGLWindow("Amiga 500 (PureMetal)", ww, wh, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
   If Gl = 0 : MessageRequester("Amiga", "OpenGL could not be started.") : End 1 : EndIf
   Win = Util_MainWindowID
+  GL_HostScaleRead(Gl)                           ; Linux: the display scale, from GTK
   ; the engine binds Esc to a shortcut of its own; here Esc is the Amiga's ESC in the window and leaves full screen
   RemoveKeyboardShortcut(Win, #PB_Shortcut_Escape)
+  ; the keys go to the GL gadget: Windows gives the only gadget the focus by itself, GTK does not
+  SetActiveGadget(Gl)
   MeasureWindow()
   GL_SetVSync(1)
   KeyMapInit()
@@ -735,7 +758,6 @@ Procedure Main()
   If adf <> "" : HostInsert(0, adf) : ViewAdfRefresh(GetPathPart(adf)) : EndIf
   If df1 <> "" : HostInsert(1, df1) : EndIf
   SoundBegin()
-  PadCount = InitJoystick()
   FpsSince = ElapsedMilliseconds() : LastDraw = FpsSince
   If ShotFile <> "" : ShotAtMs + FpsSince : EndIf
   If PtOn : PtInit() : EndIf
@@ -744,21 +766,18 @@ Procedure Main()
       ev = WindowEvent()
       Select ev
         Case #PB_Event_CloseWindow : Quit = 1
+        Case #PB_Event_DeactivateWindow : MouseLeft = 0 : MouseRight = 0
         Case #PB_Event_SizeWindow, #PB_Event_MoveWindow, #PB_Event_MaximizeWindow, #PB_Event_RestoreWindow : MeasureWindow()
         Case #PB_Event_Gadget
           If EventGadget() = Gl
             et = EventType()
             Select et
-              Case #PB_EventType_KeyDown
-                k = GetGadgetAttribute(Gl, #PB_OpenGL_Key)
-                ; the window's own keys first (the controls table), then the Amiga's
-                If ControlsAction(k, FullScreen)
-                  WindowAction(ControlsAction(k, FullScreen))
-                Else
-                  KeyEvent(k, 0)
-                EndIf
-              Case #PB_EventType_KeyUp
-                KeyEvent(GetGadgetAttribute(Gl, #PB_OpenGL_Key), 1)
+              Case #PB_EventType_KeyDown : HostKey(GetGadgetAttribute(Gl, #PB_OpenGL_Key), 0)
+              Case #PB_EventType_KeyUp : HostKey(GetGadgetAttribute(Gl, #PB_OpenGL_Key), 1)
+              Case #PB_EventType_LeftButtonDown : MouseLeft = 1
+              Case #PB_EventType_LeftButtonUp : MouseLeft = 0
+              Case #PB_EventType_RightButtonDown : MouseRight = 1
+              Case #PB_EventType_RightButtonUp : MouseRight = 0
               Case #PB_EventType_Input : KeyChar = GetGadgetAttribute(Gl, #PB_OpenGL_Input)
               Case #PB_EventType_MouseWheel : Wheel + GetGadgetAttribute(Gl, #PB_OpenGL_WheelDelta)
             EndSelect

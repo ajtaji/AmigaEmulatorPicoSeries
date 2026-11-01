@@ -2,7 +2,8 @@
 ; the Controls tab (amiga_view.pbi) and the README's Controls section (tools/controls_readme.py) all read -
 ; so they cannot disagree.
 ;
-; A row: kind, PC key (a key code as the window gives it), what the PC key is called, what it is on the
+; A row: kind, PC key (a key code as the window gives it: a #PB_Shortcut_ or #GL_Key_ code - the Windows
+; virtual key, the X keysym on Linux), what the PC key is called, what it is on the
 ; Amiga, and a number: the Amiga raw key code for a key, the joystick bit for a joystick key, the action for
 ; a shortcut. Rows marked hidden are read by the code but shown as one summary row.
 ;
@@ -63,30 +64,36 @@ Procedure ControlsInit()
   CtlAdd(#CTL_KEY, #PB_Shortcut_Delete, "Delete", "DEL", $46)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Back, "Backspace", "BACKSPACE", $41)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Tab, "Tab", "TAB", $42)
-  CtlAdd(#CTL_KEY, #PB_Shortcut_LeftWindows, "Left Windows", "LEFT AMIGA", $66)
-  CtlAdd(#CTL_KEY, #PB_Shortcut_RightWindows, "Right Windows", "RIGHT AMIGA", $67)
-  ; Shift and Ctrl are the key codes 16 and 17: #PB_Shortcut_Shift and #PB_Shortcut_Control are modifier FLAGS
-  CtlAdd(#CTL_KEY, 16, "Shift", "SHIFT", $60)
-  CtlAdd(#CTL_KEY, 17, "Ctrl", "CTRL", $63)
-  CtlAdd(#CTL_KEY, #PB_Shortcut_Menu, "Alt", "ALT", $64)
-  CtlAdd(#CTL_KEY, #PB_Shortcut_Capital, "Caps Lock", "CAPS LOCK", $62)
+  ; the keys PureBasic has no portable code for are the engine's #GL_Key_ (GlUtilities.pbi, HOST SERVICES):
+  ; #PB_Shortcut_Shift / _Control / _Alt are modifier FLAGS, and on Linux #PB_Shortcut_LeftWindows, _Menu and
+  ; _Capital are not the keys' codes. Windows gives one code for either Shift, Ctrl or Alt; Linux gives the
+  ; left and the right one apart, so the right ones are rows of their own, to the same Amiga key.
+  CtlAdd(#CTL_KEY, #GL_Key_SuperLeft, "Left Windows", "LEFT AMIGA", $66)
+  CtlAdd(#CTL_KEY, #GL_Key_SuperRight, "Right Windows", "RIGHT AMIGA", $67)
+  CtlAdd(#CTL_KEY, #GL_Key_Shift, "Shift", "SHIFT", $60)
+  CtlAdd(#CTL_KEY, #GL_Key_ShiftRight, "Right Shift", "SHIFT", $60, 1)
+  CtlAdd(#CTL_KEY, #GL_Key_Control, "Ctrl", "CTRL", $63)
+  CtlAdd(#CTL_KEY, #GL_Key_ControlRight, "Right Ctrl", "CTRL", $63, 1)
+  CtlAdd(#CTL_KEY, #GL_Key_Alt, "Alt", "ALT", $64)
+  CtlAdd(#CTL_KEY, #GL_Key_AltRight, "Right Alt", "ALT", $64, 1)
+  CtlAdd(#CTL_KEY, #GL_Key_CapsLock, "Caps Lock", "CAPS LOCK", $62)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Up, "Up", "cursor up", $4C)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Down, "Down", "cursor down", $4D)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Right, "Right", "cursor right", $4E)
   CtlAdd(#CTL_KEY, #PB_Shortcut_Left, "Left", "cursor left", $4F)
   CtlAdd(#CTL_NOTE, 0, "F1-F10", "F1-F10 (all ten are the Amiga's)")
   For i = 0 To 9 : CtlAdd(#CTL_KEY, #PB_Shortcut_F1 + i, "F" + Str(i + 1), "F" + Str(i + 1), $50 + i, 1) : Next
-  CtlAdd(#CTL_KEY, 192, "`", "`", $00)
-  CtlAdd(#CTL_KEY, 189, "-", "-", $0B)
-  CtlAdd(#CTL_KEY, 187, "=", "=", $0C)
-  CtlAdd(#CTL_KEY, 220, "\", "\", $0D)
-  CtlAdd(#CTL_KEY, 219, "[", "[", $1A)
-  CtlAdd(#CTL_KEY, 221, "]", "]", $1B)
-  CtlAdd(#CTL_KEY, 186, ";", ";", $29)
-  CtlAdd(#CTL_KEY, 222, "'", "'", $2A)
-  CtlAdd(#CTL_KEY, 188, ",", ",", $38)
-  CtlAdd(#CTL_KEY, 190, ".", ".", $39)
-  CtlAdd(#CTL_KEY, 191, "/", "/", $3A)
+  CtlAdd(#CTL_KEY, #GL_Key_Grave, "`", "`", $00)
+  CtlAdd(#CTL_KEY, #GL_Key_Minus, "-", "-", $0B)
+  CtlAdd(#CTL_KEY, #GL_Key_Equals, "=", "=", $0C)
+  CtlAdd(#CTL_KEY, #GL_Key_Backslash, "\", "\", $0D)
+  CtlAdd(#CTL_KEY, #GL_Key_BracketLeft, "[", "[", $1A)
+  CtlAdd(#CTL_KEY, #GL_Key_BracketRight, "]", "]", $1B)
+  CtlAdd(#CTL_KEY, #GL_Key_Semicolon, ";", ";", $29)
+  CtlAdd(#CTL_KEY, #GL_Key_Apostrophe, "'", "'", $2A)
+  CtlAdd(#CTL_KEY, #GL_Key_Comma, ",", ",", $38)
+  CtlAdd(#CTL_KEY, #GL_Key_Period, ".", ".", $39)
+  CtlAdd(#CTL_KEY, #GL_Key_Slash, "/", "/", $3A)
   ; the numeric pad: the Amiga's own (keypad 8 2 4 6 0 are also the joystick, below)
   CtlAdd(#CTL_NOTE, 0, "Keypad 0-9 . - + * /", "keypad 0-9 . - + * /")
   CtlAdd(#CTL_KEY, #PB_Shortcut_Pad0, "Keypad 0", "keypad 0", $0F, 1)

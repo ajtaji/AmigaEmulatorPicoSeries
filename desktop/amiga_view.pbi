@@ -42,16 +42,17 @@ Procedure ViewTextureMake(*t.ViewTexture, w.i, h.i)
   glTexImage2D_(#GL_TEXTURE_2D, 0, #GL_RGBA, w, h, 0, #GL_RGBA, #GL_UNSIGNED_BYTE, *t\pixels)
 EndProcedure
 
-; The engine's sprite draw samples a Windows texture bottom-up, so rows go in that order there.
+; The rows go in the order the engine's sprite draw shows them top to bottom: #GL_SpriteRowsBottomUp
+; (GlSpriteFunctions.pbi) says whether it draws a texture's row 0 at the bottom.
 Procedure ViewPicUpload()
   Protected y.i, *src, *dst
   For y = 0 To #HOST_FRAME_H - 1
     *src = @HostFrame(y * #AM_OUT_W)
-    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    If #GL_SpriteRowsBottomUp
       *dst = ViewPic\pixels + (#HOST_FRAME_H - 1 - y) * #AM_OUT_W * 4
-    CompilerElse
+    Else
       *dst = ViewPic\pixels + y * #AM_OUT_W * 4
-    CompilerEndIf
+    EndIf
     CopyMemory(*src, *dst, #AM_OUT_W * 4)
   Next
   glBindTexture_(#GL_TEXTURE_2D, ViewPic\sprite\TextureID)
@@ -71,12 +72,8 @@ Procedure ViewDrawPictureShaped(x.f, y.f, w.f, h.f, rows.i)
   ViewPicUpload()
   CopyStructure(@ViewPic\sprite, @ViewPicShaped, GLSprite)
   ViewPicShaped\Width = w / k
-  ; the rows from the top of the picture: on Windows the texture holds them bottom-up
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    srcY = #HOST_FRAME_H - rows
-  CompilerElse
-    srcY = 0
-  CompilerEndIf
+  ; the rows from the top of the picture, wherever the texture holds them
+  If #GL_SpriteRowsBottomUp : srcY = #HOST_FRAME_H - rows : EndIf
   DrawGLSprite(@ViewPicShaped, x, y, 0.0, k, 1.0, 1.0, 1.0, 1.0, #True, 0, srcY, ViewPicShaped\Width, rows, #True)
 EndProcedure
 

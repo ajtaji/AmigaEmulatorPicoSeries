@@ -52,8 +52,8 @@ If dir = ""
   PrintN("usage: m68k_check <dir of .m68c files> [name filter]")
   End 2
 EndIf
-If Right(dir, 1) <> "\"
-  dir + "\"
+If Right(dir, 1) <> "\" And Right(dir, 1) <> "/"
+  dir + #PS$
 EndIf
 NewList files.s()
 Define d.i = ExamineDirectory(#PB_Any, dir, "*.m68c")

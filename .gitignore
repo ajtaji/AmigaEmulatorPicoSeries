@@ -12,6 +12,11 @@
 Diagnostics/build/
 firmware/*.uf2.*
 desktop/*.build.log
+# the Linux builds (no extension)
+desktop/amiga
+desktop/amiga_cli
+desktop/m68k_check
+desktop/m68k_run
 # never in git: Kickstart ROMs, disk images, private wrappers
 *.rom
 *.ROM

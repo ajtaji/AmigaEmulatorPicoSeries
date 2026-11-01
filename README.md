@@ -263,6 +263,7 @@ from `demo/demo.amiga` (see [demo/README.md](demo/README.md)). To use an engine 
 `/CONSTANT GL_ENGINE_DIR$=<its folder>/` (with the trailing slash). From Git
 Bash, `desktop/build.sh amiga` and `desktop/build.sh amiga_cli console` do the
 same, taking the engine's folder from `NEON_ENGINE_DIR` (`tools/env.sh`).
+The same source builds and runs on Linux: see [desktop/README.md](desktop/README.md).
 
 ### Running it
 
