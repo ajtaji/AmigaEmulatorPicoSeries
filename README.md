@@ -21,7 +21,7 @@ system software legally.
 
 > **The demo can't be built with the current public release of PureMetal Forge.**
 > It uses the classic string library, which needs a compiler newer than the
-> 2026-10-25 release (a3098475d or later). The compiler is being upgraded, and
+> 2026-10-25 release (acf35ae2e or later). The compiler is being upgraded, and
 > the demo can be built once the next release is out. The built demo ROM and
 > floppy in `demo/` run as they are.
 

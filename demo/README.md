@@ -4,7 +4,7 @@ A demo for the Amiga 500 - and for this emulator - written entirely in PureMetal
 assembly, and compiled for the 68000 by PureMetal Forge.
 
 > **This demo can't be built with the current public release of PureMetal Forge.** It uses the
-> classic string library, which needs a compiler newer than the 2026-10-25 release (a3098475d or
+> classic string library, which needs a compiler newer than the 2026-10-25 release (acf35ae2e or
 > later). The compiler is being upgraded, and the demo can be built once the next release is out.
 > The built `PureMetalDemo.adf` and `PureMetalDemo.rom` here run as they are.
 
@@ -38,7 +38,7 @@ repository; the `.bin` is not, so build it if you want the bare image.
 
 ## Building
 
-> Needs the PureMetal Forge compiler build of 2026-11-03 or later (the classic CPUs' string library).
+> Needs the PureMetal Forge compiler build of 2026-11-04 (acf35ae2e) or later (the classic CPUs' string library).
 
 ```
 PureMetalForge.exe --compile demo/demo.amiga -o demo/PureMetalDemo.bin
