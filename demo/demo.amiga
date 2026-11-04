@@ -10,8 +10,8 @@
 ;                    its highlight colour changes line by line (the copper)
 ;    copper bars     three bars sliding on a sine behind everything: COLOR00
 ;                    changed on every line by the copper
-;    the scroller    text slid along by the blitter, cut into sixteen-pixel
-;                    columns and each column put on a sine - twenty blits a frame;
+;    the scroller    each letter blitted whole from the font at the height of a
+;                    sine where it stands - one blit a letter, 21 a frame;
 ;                    a rainbow down it (the copper again, COLOR01 per line)
 ;    the balls       the eight hardware sprites on a Lissajous path
 ;    the tune        four channels of Paula: bass, lead, chords and drums,
@@ -47,9 +47,14 @@ Global copPtr.l           ; where CopMove / CopWait write
 Global logoVals.l         ; byte offset, from a list's start, of the first logo line's COLOR07 value
 Global lowVals.l          ; ... of the first lower line's COLOR00 value (COLOR01's is 4 bytes on)
 
-; --- the lower bitplane, the scroller's text strip, the sprites ------------
-Dim screen.w(20 * #LOW_H)            ; 320 x 148, one bitplane
-Dim strip.w(22 * 16)                 ; 352 x 16: the text, sliding left
+; --- the lower bitplane, the scroller's letters, the sprites ---------------
+; 352 x 148, one bitplane: a hidden word each side of the 320 shown (BPL1MOD 4), so a letter half off
+; the left or right edge is blitted whole like the others
+#ROW_W = 22                           ; words a line
+Dim screen.w(#ROW_W * #LOW_H)
+Dim letterGlyph.l(64)                 ; the letters' glyphs in the font, each at k and k + 32, so the
+Global letterHead.w, letterCount.w    ; newest-first walk never wraps; the newest, and how many (to 32)
+Dim sineRow.w(256)                    ; the scroller's sine as a byte offset into the screen (made once)
 Dim sprites.w(8 * 36)                ; eight sprites: POS, CTL, 16 x (A, B), 0, 0
 
 ; --- what the frame shares with the interrupt -------------------------------
@@ -125,7 +130,8 @@ Procedure BuildCopper(list.l)
   ; the end of line 107: the lower part is one bitplane, the scroller's
   CopWait(#LOW_Y - 1, $E0)
   CopMove($100, $1200)
-  CopMoveL($0E0, @screen(0))
+  CopMove($108, (#ROW_W - 20) * 2)    ; BPL1MOD: the hidden words
+  CopMoveL($0E0, @screen(1))
   ; the lower part: on each line, COLOR00 (the bars) and COLOR01 (the text)
   lowVals = copPtr - base + 6
   For i = 0 To #LOW_H - 1
@@ -187,23 +193,13 @@ Procedure UpdateCopper(list.l, t.w)
   BlitColumn(?Shimmer + (t & 127) * 2, list + logoVals, 64, 8)
 EndProcedure
 
-; The scroller: slide the strip left, feed it a character every 16 pixels,
-; clear the band and blit the strip onto it in twenty columns on a sine.
+; The scroller: the text moves left #SPEED pixels a frame, a character coming in every 16 pixels at
+; x = 320. The band is cleared, then each letter on the screen is blitted whole, in one blit, from the
+; font: two words wide, the A shift and a zero last-word mask putting it at its pixel, ORed with what is
+; there (C), at the height of the sine where it stands.
 Procedure UpdateScroller(t.w)
-  Protected c.w, g.w, col.w, y.w, s.w, last.l
-  ; slide the strip left by #SPEED: descending mode, shift #SPEED
-  last = @strip(22 * 16 - 1)
-  AmigaWaitBlit()
-  PokeW(#BLTCON0, $09F0 | (#SPEED << 12))
-  PokeW(#BLTCON1, $0002)              ; DESC
-  PokeW(#BLTAFWM, $FFFF)
-  PokeW(#BLTALWM, $FFFF)
-  PokeL(#BLTAPTH, last)
-  PokeL(#BLTDPTH, last)
-  PokeW(#BLTAMOD, 0)
-  PokeW(#BLTDMOD, 0)
-  PokeW(#BLTSIZE, (16 << 6) | 22)
-  ; every sixteen pixels the next character goes in at x = 320
+  Protected c.w, g.w, k.w, s.w, x.w, first.w, last.w, phase.w, dst.l, gp.l, at.l
+  ; every sixteen pixels the next character comes in
   charStep = charStep + #SPEED
   If charStep >= 16
     charStep = 0
@@ -214,34 +210,52 @@ Procedure UpdateScroller(t.w)
     EndIf
     textPos = textPos + 1
     g = PeekB(?FontMap + c - 32)
-    AmigaWaitBlit()
-    PokeW(#BLTCON0, $09F0)
-    PokeW(#BLTCON1, 0)
-    PokeL(#BLTAPTH, ?Font + g * 32)
-    PokeL(#BLTDPTH, @strip(20))
-    PokeW(#BLTAMOD, 0)
-    PokeW(#BLTDMOD, 42)
-    PokeW(#BLTSIZE, (16 << 6) | 1)
+    letterHead = (letterHead + 1) & 31
+    PokeL(@letterGlyph(letterHead), ?Font + g * 32)
+    PokeL(@letterGlyph(letterHead + 32), ?Font + g * 32)
+    If letterCount < 32
+      letterCount = letterCount + 1
+    EndIf
   EndIf
-  ; clear the band the columns move in
+  ; clear the band the letters move in
   AmigaWaitBlit()
   PokeW(#BLTCON0, $0100)              ; D = 0
   PokeW(#BLTCON1, 0)
-  PokeL(#BLTDPTH, @screen((#SCROLL_BASE - 32) * 20))
+  PokeL(#BLTDPTH, @screen((#SCROLL_BASE - 32) * #ROW_W))
   PokeW(#BLTDMOD, 0)
-  PokeW(#BLTSIZE, (80 << 6) | 20)
-  ; twenty columns, each on the sine
+  PokeW(#BLTSIZE, (80 << 6) | #ROW_W)
+  ; letter k (0 the newest) is at x = 320 - charStep - 16k: the same shift for all, a word apart
+  x = 320 - charStep
+  s = (x + 16) & 15
+  first = 0
+  If charStep = 0
+    first = 1                         ; the newest is still wholly off the right edge
+  EndIf
+  last = letterCount - 1
+  If last > 20
+    last = 20
+  EndIf
+  ; the sine at x (12 a 16 pixels, as it was), the first word, the glyph: for letter first, then a step a letter
+  phase = t * 4 + ((x * 3) >> 2) - first * 12
+  dst = @screen((x + 16) >> 4) - first * 2
+  gp = @letterGlyph(letterHead + 32) - first * 4
   AmigaWaitBlit()
-  PokeW(#BLTCON0, $09F0)
-  PokeW(#BLTAMOD, 42)
-  PokeW(#BLTDMOD, 38)
-  For col = 0 To 19
-    s = PeekB(?Sine + ((t * 4 + col * 12) & 255))
-    y = #SCROLL_BASE - 8 + (s * 24) / 127
+  PokeW(#BLTCON0, $0BFA | (s << 12))  ; A, C, D: D = A | C
+  PokeW(#BLTAFWM, $FFFF)
+  PokeW(#BLTALWM, $0000)              ; the second word's A is 0: it takes only what the shift brings
+  PokeW(#BLTAMOD, -2)                 ; a glyph is one word a line
+  PokeW(#BLTCMOD, (#ROW_W - 2) * 2)
+  PokeW(#BLTDMOD, (#ROW_W - 2) * 2)
+  For k = first To last
+    at = dst + PeekW(@sineRow(0) + (phase & 255) * 2)
     AmigaWaitBlit()
-    PokeL(#BLTAPTH, @strip(col))
-    PokeL(#BLTDPTH, @screen(y * 20 + col))
-    PokeW(#BLTSIZE, (16 << 6) | 1)
+    PokeL(#BLTAPTH, PeekL(gp))
+    PokeL(#BLTCPTH, at)
+    PokeL(#BLTDPTH, at)
+    PokeW(#BLTSIZE, (16 << 6) | 2)
+    phase = phase - 12
+    dst = dst - 2
+    gp = gp - 4
   Next
 EndProcedure
 
@@ -391,6 +405,16 @@ ProcedureInterrupt Level4()
   EndIf
 EndProcedure
 
+; the scroller's sine: for each of its 256 steps, the line a letter's top is on, as a byte offset into
+; the screen (no divide a letter)
+Procedure MakeSineRows()
+  Protected i.w, s.w
+  For i = 0 To 255
+    s = PeekB(?Sine + i)
+    PokeW(@sineRow(i), (#SCROLL_BASE - 8 + (s * 24) / 127) * #ROW_W * 2)
+  Next
+EndProcedure
+
 ; scrollText$ into textBytes, a byte a character and a 0 after: read with Mid and Asc, once.
 Procedure MakeTextBytes()
   Protected n.w, i.w
@@ -409,6 +433,7 @@ Procedure Main()
   ; the text first, before the copper and the interrupts: about 0.17 s, 10 frames (Mid walks from the start for each
   ; character). The picture runs on t and the tune on frame, so started together they stay together.
   MakeTextBytes()
+  MakeSineRows()
   BuildCopper(@copA(0))
   BuildCopper(@copB(0))
   SetupSprites()
@@ -430,8 +455,9 @@ Procedure Main()
     Else
       list = @copB(0)
     EndIf
-    UpdateCopper(list, t)
+    ; the scroller first: its screen is the one on show, so it is drawn before the beam reaches the band
     UpdateScroller(t)
+    UpdateCopper(list, t)
     UpdateSprites(t)
     swapReq = 1
   ForEver

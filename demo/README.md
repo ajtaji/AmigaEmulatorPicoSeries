@@ -11,8 +11,8 @@ assembly, and compiled for the 68000 by PureMetal Forge.
 - **"PUREMETAL"** in big shaded letters: three bitplanes, with a highlight that the copper sweeps
   through gold and white, line by line
 - **copper bars**: three bars sliding on a sine behind everything
-- **a sine scroller**: the text slid along by the blitter and cut into twenty sixteen-pixel
-  columns, each on its own sine, with a rainbow down it
+- **a sine scroller**: each letter blitted whole from the font, in one blit, at the height of a
+  sine where it stands, with a rainbow down it
 - **eight hardware sprites**: shaded balls on a Lissajous path
 - **an original four-channel tune** on Paula: bass, lead, chords and drums. The drums are one-shot
   samples, ended by Paula's audio interrupt
