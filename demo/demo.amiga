@@ -24,8 +24,8 @@
 ;  writes. There are two copper lists; the one being shown is never written.
 ;
 ;  The graphics, tables and tune are generated: demo_assets.amiga, made by
-;  make_demo_assets.py. Left mouse button: nothing to quit to - it is the
-;  whole machine.
+;  make_demo_assets.py; the scroller's text is a string here, read with Mid
+;  and Asc. Left mouse button: nothing to quit to - it is the whole machine.
 ; ======================================================================
 
 IncludeFile "M68k/Lib/amiga.amiga"
@@ -55,6 +55,11 @@ Dim sprites.w(8 * 36)                ; eight sprites: POS, CTL, 16 x (A, B), 0, 
 ; --- what the frame shares with the interrupt -------------------------------
 Global frame.w, shown.w, swapReq.w
 Global textPos.w, charStep.w
+
+; --- the scroller's text: a string, made into bytes once (MakeTextBytes), so the scroller reads a byte a
+;     character
+Global scrollText$ = "    PUREMETAL ON THE AMIGA ... A 68000 PROGRAM WRITTEN IN PUREMETAL AND COMPILED BY PUREMETAL FORGE: COPPER BARS, A BITPLANE LOGO, EIGHT HARDWARE SPRITES, A BLITTER SINE SCROLLER AND FOUR CHANNELS OF PAULA ... NO ASSEMBLY, NO OPERATING SYSTEM, JUST THE MACHINE ... GREETINGS TO EVERY 68000 STILL RUNNING!      "
+Dim textBytes.b(312)                 ; scrollText$ as bytes, ending in 0
 
 ; --- the tune --------------------------------------------------------------
 Global musTick.w, musRow.w
@@ -202,10 +207,10 @@ Procedure UpdateScroller(t.w)
   charStep = charStep + #SPEED
   If charStep >= 16
     charStep = 0
-    c = PeekB(?ScrollText + textPos)
+    c = PeekB(@textBytes(0) + textPos)
     If c = 0
       textPos = 0
-      c = PeekB(?ScrollText)
+      c = PeekB(@textBytes(0))
     EndIf
     textPos = textPos + 1
     g = PeekB(?FontMap + c - 32)
@@ -386,11 +391,24 @@ ProcedureInterrupt Level4()
   EndIf
 EndProcedure
 
+; scrollText$ into textBytes, a byte a character and a 0 after: read with Mid and Asc, once.
+Procedure MakeTextBytes()
+  Protected n.w, i.w
+  n = Len(scrollText$)
+  For i = 0 To n - 1
+    PokeB(@textBytes(i), Asc(Mid(scrollText$, i + 1, 1)))
+  Next
+  PokeB(@textBytes(n), 0)
+EndProcedure
+
 ; ======================================================================
 ;  MAIN
 ; ======================================================================
 Procedure Main()
   Protected seen.w, t.w, list.l
+  ; the text first, before the copper and the interrupts: about 3.6 s (Mid walks from the start for each
+  ; character). The picture runs on t and the tune on frame, so started together they stay together.
+  MakeTextBytes()
   BuildCopper(@copA(0))
   BuildCopper(@copB(0))
   SetupSprites()

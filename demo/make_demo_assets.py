@@ -269,12 +269,6 @@ def song():
     return rows
 
 
-SCROLL_TEXT = ('    PUREMETAL ON THE AMIGA ... A 68000 PROGRAM WRITTEN IN PUREMETAL AND COMPILED BY '
-               'PUREMETAL FORGE: COPPER BARS, A BITPLANE LOGO, EIGHT HARDWARE SPRITES, A BLITTER '
-               'SINE SCROLLER AND FOUR CHANNELS OF PAULA ... NO ASSEMBLY, NO OPERATING SYSTEM, '
-               'JUST THE MACHINE ... GREETINGS TO EVERY 68000 STILL RUNNING!      ')
-
-
 # ---------------------------------------------------------------- output
 def data_lines(label, values, kind, per=16):
     out = [label + ':']
@@ -319,7 +313,6 @@ def generate(write_previews):
     for k in ('WaveSquare', 'WavePulse', 'WaveSaw', 'WaveKick', 'WaveSnare', 'WaveHat', 'WaveSilence'):
         out += data_lines(k, w[k], 'b')
     out += data_lines('Song', [v for r in rows for v in r], 'b')
-    out += data_lines('ScrollText', [ord(c) for c in SCROLL_TEXT] + [0], 'b')
     out.append('EndDataSection')
     text = '\n'.join(out) + '\n'
     if write_previews:

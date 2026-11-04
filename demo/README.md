@@ -20,7 +20,7 @@ every line's MOVE in one blit; two copper lists are kept, and the one on the scr
 
 | File | What it is |
 |---|---|
-| `demo.amiga` | the program |
+| `demo.amiga` | the program; the scroller's text is a string in it, made into bytes once at the start with `Mid` and `Asc` (the compiler's string library for the classic CPUs) - that takes about 3.6 s, so the demo starts that much later |
 | `demo_assets.amiga` | the logo, font, sprite, tables, samples and tune - generated, do not edit |
 | `make_demo_assets.py` | makes `demo_assets.amiga`: `py -3 demo/make_demo_assets.py` (needs Pillow); `--check` says whether the committed file is current |
 | `fonts/Lato-Regular.ttf` | the typeface of the logo and the scroller (SIL Open Font License 1.1, `fonts/OFL.txt`) |
@@ -33,7 +33,7 @@ repository; the `.bin` is not, so build it if you want the bare image.
 
 ## Building
 
-> Needs the PureMetal Forge compiler build of 2026-10-23 or later.
+> Needs the PureMetal Forge compiler build of 2026-11-03 or later (the classic CPUs' string library).
 
 ```
 PureMetalForge.exe --compile demo/demo.amiga -o demo/PureMetalDemo.bin
