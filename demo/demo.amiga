@@ -406,7 +406,7 @@ EndProcedure
 ; ======================================================================
 Procedure Main()
   Protected seen.w, t.w, list.l
-  ; the text first, before the copper and the interrupts: about 3.6 s (Mid walks from the start for each
+  ; the text first, before the copper and the interrupts: about 0.17 s, 10 frames (Mid walks from the start for each
   ; character). The picture runs on t and the tune on frame, so started together they stay together.
   MakeTextBytes()
   BuildCopper(@copA(0))

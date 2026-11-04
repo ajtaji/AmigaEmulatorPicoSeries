@@ -25,7 +25,7 @@ every line's MOVE in one blit; two copper lists are kept, and the one on the scr
 
 | File | What it is |
 |---|---|
-| `demo.amiga` | the program; the scroller's text is a string in it, made into bytes once at the start with `Mid` and `Asc` (the compiler's string library for the classic CPUs) - that takes about 3.6 s, so the demo starts that much later |
+| `demo.amiga` | the program; the scroller's text is a string in it, made into bytes once at the start with `Mid` and `Asc` (the compiler's string library for the classic CPUs) - that takes about 0.17 s (10 frames), so the demo starts that much later |
 | `demo_assets.amiga` | the logo, font, sprite, tables, samples and tune - generated, do not edit |
 | `make_demo_assets.py` | makes `demo_assets.amiga`: `py -3 demo/make_demo_assets.py` (needs Pillow); `--check` says whether the committed file is current |
 | `fonts/Lato-Regular.ttf` | the typeface of the logo and the scroller (SIL Open Font License 1.1, `fonts/OFL.txt`) |
