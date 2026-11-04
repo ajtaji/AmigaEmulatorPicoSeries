@@ -58,6 +58,7 @@ builds `m68k_check` and runs the 68000 tests. They take the compiler from
 desktop/amiga --pointer-test <log>                   the pointer and every control agree (synthetic points)
 desktop/amiga --fullscreen-test <log> [<pic.png>]    full screen by its own keys, NTSC and PAL
 desktop/amiga --adf <disk> --shot <pic.png> --seconds S
+desktop/amiga --adf <disk> --pace-log <log> --shot <pic.png> --seconds S   each drawn frame: the time and the emulated frames it ran
 desktop/amiga_cli --rom tests/chiptest.rom --frames 300 --dump-chip <file>
 ```
 

@@ -50,9 +50,13 @@ Global ActiveTab.i, StatusLine.s, LastDraw.q
 Global ShotFile.s, ShotAtMs.q
 Global PicX.f, PicY.f, PicSX.f, PicSY.f, PicRows.i = #HOST_FRAME_H, MouseLastX.i, MouseLastY.i, MouseInPic.i
 Global KbNoEsc.i, LastAmigaKey.i = -1
+; --pace-log <file>: for each drawn frame, the time (us), the emulated frames it ran (by the clock, extra for
+; the sound), the sound pairs queued and waiting, and the rate's steering (parts per million)
+Global PaceFile.s, PaceN.i, PaceRan.i, PaceExtra.i, PaceBacklog.i, PaceRate.d
+Global Dim PaceT.q(0), Dim PaceR.i(0), Dim PaceX.i(0), Dim PaceQ.i(0), Dim PaceRt.i(0)
 
 Procedure.q HostUs()
-  ProcedureReturn ElapsedMilliseconds() * 1000
+  ProcedureReturn GL_Micros()                    ; the engine's microsecond clock (ElapsedMilliseconds: 1 ms steps)
 EndProcedure
 
 ; ---------------------------------------------------------------- keys: PC -> Amiga raw codes
@@ -229,13 +233,24 @@ Procedure ReadPads()
   JoyBits = b | PadBits()
 EndProcedure
 
-; Whole frames at the PAL rate (50 Hz); never more than three a pass. Warp: as fast as it goes.
+; Whole frames at the machine's rate (NTSC 59.94, PAL 49.92), evenly at the screen's refresh; never more than
+; three a pass. Warp: as fast as it goes.
+;
+; The time a pass adds is the screen's refresh period (PaceP, measured and smoothed), not the noisy time
+; between two passes: at 240 Hz an NTSC frame then comes every 4th refresh, with one 5th about every 4 s
+; (59.94 against 60), instead of 3s and 5s at random. The clock is held to real time: a missed refresh or a
+; drift is made up a little a pass, and after a stall (a pause, a dragged window) it is set to it.
+; The sound card is kept fed by steering the rate a little (at most 0.4%) towards its buffers all queued
+; (the count is in whole buffers, the one playing included), not by extra frames; an extra frame is run only
+; when the sound is about to run dry (at the start, after a stall).
+#SOUND_TARGET = #SOUND_PAIRS * #SOUND_BUFFERS
+Global PaceP.d, PaceClock.d, PaceLastNow.q, SoundAvg.d
 Procedure Emulate()
-  Protected now.q, n.i, t0.q
+  Protected now.q, n.i, t0.q, d.q, e.d, stepUs.d, rate.d = 1.0, backlog.i
   now = HostUs()
   If EmuLastUs = 0 : EmuLastUs = now : EndIf
   If Paused Or HostRomName = ""
-    EmuLastUs = now
+    EmuLastUs = now : PaceClock = now : PaceLastNow = now
     ProcedureReturn
   EndIf
   ReadPads()
@@ -244,16 +259,51 @@ Procedure Emulate()
     Repeat
       AmigaRunFrame() : FpsFrames + 1
     Until ElapsedMilliseconds() - t0 > 14
-    EmuLastUs = HostUs()
+    EmuLastUs = HostUs() : PaceClock = EmuLastUs : PaceLastNow = EmuLastUs
     ProcedureReturn
   EndIf
-  EmuAccum + (now - EmuLastUs) : EmuLastUs = now
+  ; the screen's refresh period, from the time between passes (each pass waits for one refresh)
+  If PaceLastNow = 0 : PaceLastNow = now : PaceClock = now : EndIf
+  d = now - PaceLastNow : PaceLastNow = now
+  ; (a pass that missed a refresh, or a late one, counts as at most 1.5 periods)
+  If d > 1000 And d < 50000
+    If PaceP = 0
+      PaceP = d
+    Else
+      If d > PaceP * 1.5 : d = PaceP * 1.5 : ElseIf d < PaceP * 0.5 : d = PaceP * 0.5 : EndIf
+      PaceP + (d - PaceP) / 64
+    EndIf
+  EndIf
+  If PaceP = 0
+    stepUs = d : PaceClock = now
+  Else
+    ; a refresh period a pass, held to real time: a missed refresh or a slow drift is made up a sixteenth a pass
+    e = now - (PaceClock + PaceP)
+    If e > PaceP * 4 Or e < -PaceP * 4
+      stepUs = PaceP : PaceClock = now      ; a stall (a pause, a dragged window): back to real time
+    Else
+      stepUs = PaceP + e / 16 : PaceClock + stepUs
+    EndIf
+  EndIf
+  EmuLastUs = now
+  ; the sound: what is queued on the card and waiting in Paula's ring, smoothed; a slightly faster or slower
+  ; machine moves it to the target
+  If SoundOn
+    backlog = SoundPump() + (AudWr - AudRd)
+    If SoundAvg = 0 : SoundAvg = backlog : Else : SoundAvg + (backlog - SoundAvg) / 128 : EndIf
+    rate = 1.0 + (#SOUND_TARGET - SoundAvg) / #SOUND_TARGET * 0.004
+    If rate > 1.004 : rate = 1.004 : ElseIf rate < 0.996 : rate = 0.996 : EndIf
+  EndIf
+  PaceBacklog = backlog : PaceRate = rate
+  EmuAccum + stepUs * rate
   If EmuAccum > EmuFrameUs * 4 : EmuAccum = EmuFrameUs * 4 : EndIf
   While EmuAccum >= EmuFrameUs And n < 3
     AmigaRunFrame() : EmuAccum - EmuFrameUs : n + 1 : FpsFrames + 1
   Wend
-  If SoundOn And SoundPump() < #SOUND_PAIRS And n < 3 And AudWr - AudRd < #SOUND_PAIRS
-    AmigaRunFrame() : FpsFrames + 1 : EmuAccum - EmuFrameUs
+  PaceRan = n : PaceExtra = 0
+  ; about to run dry: one frame more, ahead of the clock (it stays ahead: that is the sound's margin)
+  If SoundOn And n = 0 And SoundPump() + (AudWr - AudRd) < #SOUND_PAIRS
+    AmigaRunFrame() : FpsFrames + 1 : PaceExtra = 1
   EndIf
 EndProcedure
 
@@ -593,8 +643,13 @@ Procedure Tick()
   Protected now.q, dt.f, mx.i, my.i, down.b, rdown.b, toolH.f, x.f, gw.f, gh.f, side.f, panelX.f, label.s
   now = ElapsedMilliseconds() : dt = (now - LastDraw) / 1000.0 : LastDraw = now
   If dt > 0.25 : dt = 0.25 : EndIf
+  PaceRan = 0 : PaceExtra = 0
   Emulate()
   If SoundOn : SoundPump() : EndIf
+  If PaceFile <> ""
+    If PaceN > ArraySize(PaceT()) : ReDim PaceT(PaceN + 4096) : ReDim PaceR(PaceN + 4096) : ReDim PaceX(PaceN + 4096) : ReDim PaceQ(PaceN + 4096) : ReDim PaceRt(PaceN + 4096) : EndIf
+    PaceT(PaceN) = GL_Micros() : PaceR(PaceN) = PaceRan : PaceX(PaceN) = PaceExtra : PaceQ(PaceN) = PaceBacklog : PaceRt(PaceN) = (PaceRate - 1.0) * 1000000 : PaceN + 1
+  EndIf
   If now - FpsSince >= 1000
     FpsShown = FpsFrames * 1000.0 / (now - FpsSince) : FpsFrames = 0
     MipsShown = (AmigaCpuCycles - CycSince) / ((now - FpsSince) * 1000.0)
@@ -742,6 +797,7 @@ Procedure Main()
     ElseIf a = "--pal" : AmigaNtsc = 0
     ElseIf a = "--ntsc" : AmigaNtsc = 1
     ElseIf a = "--fast" : Warp = 1
+    ElseIf a = "--pace-log" : k + 1 : PaceFile = ProgramParameter(k)
     ElseIf a = "--tab" : k + 1 : ActiveTab = Val(ProgramParameter(k))
     ElseIf a = "--shot" : k + 1 : ShotFile = ProgramParameter(k) : If ShotAtMs = 0 : ShotAtMs = 5000 : EndIf
     ElseIf a = "--seconds" : k + 1 : ShotAtMs = Val(ProgramParameter(k)) * 1000
@@ -790,6 +846,15 @@ Procedure Main()
     Tick()
   Until Quit
   SoundEnd()
+  If PaceFile <> ""
+    Protected pf.i = CreateFile(#PB_Any, PaceFile)
+    If pf
+      For k = 0 To PaceN - 1
+        WriteStringN(pf, Str(PaceT(k)) + " " + Str(PaceR(k)) + " " + Str(PaceX(k)) + " " + Str(PaceQ(k)) + " " + Str(PaceRt(k)))
+      Next
+      CloseFile(pf)
+    EndIf
+  EndIf
   If FullScreen : LeaveFullScreen() : EndIf
   If PtOn : End PtFails : EndIf   ; --pointer-test: the number of failures
   If FtOn : End FtFails : EndIf   ; --fullscreen-test: the number of failures
