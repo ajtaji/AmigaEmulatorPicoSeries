@@ -3,6 +3,11 @@
 A demo for the Amiga 500 - and for this emulator - written entirely in PureMetal, with no inline
 assembly, and compiled for the 68000 by PureMetal Forge.
 
+> **This demo can't be built with the current public release of PureMetal Forge.** It uses the
+> classic string library, which needs a compiler newer than the 2026-10-25 release (a3098475d or
+> later). The compiler is being upgraded, and the demo can be built once the next release is out.
+> The built `PureMetalDemo.adf` and `PureMetalDemo.rom` here run as they are.
+
 - **"PUREMETAL"** in big shaded letters: three bitplanes, with a highlight that the copper sweeps
   through gold and white, line by line
 - **copper bars**: three bars sliding on a sine behind everything

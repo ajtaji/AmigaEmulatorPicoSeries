@@ -19,6 +19,12 @@ repository holds only its own code, the emulator's own boot ROM and a demo
 written in PureMetal. See [ROMs and disks](#roms-and-disks) for where to get
 system software legally.
 
+> **The demo can't be built with the current public release of PureMetal Forge.**
+> It uses the classic string library, which needs a compiler newer than the
+> 2026-10-25 release (a3098475d or later). The compiler is being upgraded, and
+> the demo can be built once the next release is out. The built demo ROM and
+> floppy in `demo/` run as they are.
+
 ![The PureMetal demo in the desktop program](docs/window_demo.png)
 
 ## Features
