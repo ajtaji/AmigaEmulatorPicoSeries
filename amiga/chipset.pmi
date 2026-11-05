@@ -121,7 +121,9 @@ EndProcedure
 
 ; The output picture: hires pixels from DIW horizontal position #AM_OUT_X0
 ; (in lowres pixels) and lines from #AM_OUT_Y0, #AM_OUT_W x #AM_OUT_H.
-#AM_OUT_X0 = $58
+; Centred on the standard display window ($81 - $1C1): 24 lowres pixels of
+; border each side ($69 = ($81 + $1C1 - 368) / 2)
+#AM_OUT_X0 = $69
 #AM_OUT_W = 736
 #AM_OUT_Y0 = 26
 #AM_OUT_H = 287
